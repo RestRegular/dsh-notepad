@@ -1,0 +1,71 @@
+{
+  "name": "@restregular/dsh-notepad",
+  "version": "0.1.0",
+  "description": "Notepad — a per-workspace floating note window in the DeepSeek Harness session view: jot down problems and next steps, insert the note into the composer with one click, drag, minimize, and hide. · 记事本 — 在 DeepSeek Harness 会话界面显示一个按工作区共享的文本浮窗：记录问题与下一步，一键插入输入框，支持拖拽、最小化和快捷键隐藏。",
+  "icon": "./icon.svg",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib/",
+    "locale/*.json",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RestRegular/dsh-notepad.git"
+  },
+  "homepage": "https://github.com/RestRegular/dsh-notepad#readme",
+  "bugs": {
+    "url": "https://github.com/RestRegular/dsh-notepad/issues"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek",
+    "notepad",
+    "notes",
+    "scratchpad",
+    "workspace",
+    "floating"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "license": "MIT",
+  "author": "RestRegular",
+  "scripts": {
+    "test": "node test/note-store.test.mjs && node test/route.test.mjs && node test/client-smoke.mjs && node test/package.test.mjs"
+  }
+}

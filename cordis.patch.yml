@@ -1,0 +1,9 @@
+# dsh-notepad bundle patch: inserts the Host plugin (the loopback note store
+# route under /dsh-notepad/api) and the Client plugin (the floating notepad
+# registered into the shell.overlay slot).
+#
+# `name` must be byte-for-byte the package.json name: the client module graph
+# locates the package by the Loader row name.
+- insert:
+    - id: dsh-notepad
+      name: '@restregular/dsh-notepad'
