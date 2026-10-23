@@ -593,8 +593,10 @@ assert.ok(styleTags[0].textContent.includes('.dsh-np-toggle'), 'settings use tog
 assert.ok(styleTags[0].textContent.includes('.dsh-np-drop'), 'settings use a custom dropdown');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-img-remove{position:absolute;top:-6px;right:-6px'),
   'the image remove button sits on the thumbnail corner');
-assert.ok(styleTags[0].textContent.includes('.dsh-np-tools{position:relative;display:flex;align-items:center;flex:none;height:auto;min-height:31px'),
-  'the button bar hugs its one-row content again');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-tools{position:relative;display:flex;align-items:flex-start;flex:none;height:auto;min-height:36px'),
+  'the button bar hugs its one-row content and keeps bottom breathing room');
+assert.ok(styleTags[0].textContent.includes('padding:0 2px 4px') && styleTags[0].textContent.includes('.dsh-np-toolbar-actions{position:absolute;right:2px;top:0'),
+  'the action buttons are top-aligned with padding below them');
 assert.ok(!styleTags[0].textContent.includes('.dsh-np-tools::-webkit-scrollbar'),
   'the button bar no longer has a scrollbar');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-toolbar-actions{position:absolute;right:2px'),
@@ -606,8 +608,8 @@ assert.ok(styleTags[0].textContent.includes('.dsh-np-selectall{position:relative
   'the select-all text covers overflowing actions');
 assert.ok(styleTags[0].textContent.includes('border-bottom:1px solid var(--dsw-alias-border-l1') && styleTags[0].textContent.includes('overflow:hidden'),
   'the button bar clips overflow instead of scrolling');
-assert.ok(styleTags[0].textContent.includes('padding:14px 2px 8px 0'),
-  'the first card keeps padding below the action bar');
+assert.ok(styleTags[0].textContent.includes('padding:8px 2px 8px 0'),
+  'the card list keeps its normal padding');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-btn[data-danger=true]:hover'),
   'the toolbar danger item turns red on hover');
 assert.deepEqual(localeRegistered.map((entry) => entry.namespace), ['dsh-notepad']);
