@@ -66,6 +66,319 @@ window.__ModuleLoader__.load({
       'image/gif': 'gif',
     };
 
+    /** Host / system font stack; the default for the floating panel. */
+    const FONT_STACK = 'var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Helvetica Neue",Helvetica,Arial,sans-serif)';
+
+    // ------------------------------------------------------------------
+    // Settings store
+    // ------------------------------------------------------------------
+    const SETTINGS_KEY = 'dsh-notepad.settings.v1';
+    const SETTINGS_EVENT = 'dsh-notepad:settings';
+    const THEME_IDS = ['host', 'ocean', 'violet', 'emerald', 'amber', 'rose'];
+    const UI_STYLE_IDS = ['flat', 'glass'];
+    const FONT_IDS = ['system', 'sans', 'serif', 'mono'];
+    const AI_PRESET_IDS = ['balanced', 'concise', 'professional', 'outline', 'custom'];
+    const SHORTCUT_ACTIONS = ['toggle', 'reset', 'undo', 'redo', 'save'];
+    /** While a settings field records a chord, plugin shortcuts must not react. */
+    let shortcutRecording = false;
+    const SHORTCUT_DEFAULTS = Object.freeze({
+      toggle: 'Ctrl+Shift+N',
+      reset: 'Ctrl+Shift+R',
+      undo: 'Ctrl+Z',
+      redo: 'Ctrl+Shift+Z',
+      save: 'Ctrl+S',
+    });
+    const FONT_STACKS = {
+      system: FONT_STACK,
+      sans: '"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Helvetica,Arial,sans-serif',
+      serif: 'Georgia,Cambria,"Songti SC","Noto Serif CJK SC","Times New Roman",serif',
+      mono: 'ui-monospace,SFMono-Regular,Menlo,Consolas,"Cascadia Code",monospace',
+    };
+    const AI_PRESET_PROMPTS = {
+      balanced: [
+        'You are a writing assistant for a developer notepad.',
+        "Rewrite the user's note so it is clearer, more concise, and better organized,",
+        'while preserving its original language, meaning, technical facts, Markdown,',
+        'code, file paths, and image links. Never invent facts or drop information.',
+      ].join(' '),
+      concise: [
+        'Tighten the note: remove redundancy and filler, prefer short sentences,',
+        'and keep every technical fact, Markdown structure, code block, file path,',
+        'and image link. Write in the original language.',
+      ].join(' '),
+      professional: [
+        'Rewrite the note in a precise, professional technical-documentation tone.',
+        'Keep every fact, identifier, code block, file path, and image link intact.',
+        'Write in the original language.',
+      ].join(' '),
+      outline: [
+        'Reorganize the note into a clear Markdown outline with short headings and',
+        'bullet points where useful. Keep every fact, code block, file path, and',
+        'image link intact. Write in the original language.',
+      ].join(' '),
+      custom: '',
+    };
+    /** @type {any} */
+    let cachedSettings = null;
+    const settingsListeners = new Set();
+
+    const clampInt = (value, min, max, fallback) => {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return fallback;
+      return Math.min(max, Math.max(min, Math.round(number)));
+    };
+
+    const defaultSettings = () => ({
+      theme: 'host',
+      uiStyle: 'glass',
+      blur: 10,
+      font: 'system',
+      fontSize: 13,
+      saveMode: 'auto',
+      undoLimit: 50,
+      buttonGroups: true,
+      groupDelay: 180,
+      maxSegmentHeight: MAX_SEGMENT_HEIGHT,
+      aiPreset: 'balanced',
+      aiCustom: '',
+      shortcuts: { ...SHORTCUT_DEFAULTS },
+      defaultWidth: DEFAULT_W,
+      defaultHeight: DEFAULT_H,
+    });
+
+    /** @param {unknown} raw @returns {any} */
+    function sanitizeSettings(raw) {
+      const base = defaultSettings();
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return base;
+      const value = /** @type {any} */ (raw);
+      const shortcuts = {};
+      const source = value.shortcuts !== null && typeof value.shortcuts === 'object' ? value.shortcuts : {};
+      for (const action of SHORTCUT_ACTIONS) {
+        const candidate = typeof source[action] === 'string' && source[action].trim() !== ''
+          ? source[action].trim()
+          : SHORTCUT_DEFAULTS[action];
+        shortcuts[action] = parseShortcut(candidate) === null ? SHORTCUT_DEFAULTS[action] : candidate;
+      }
+      return {
+        theme: THEME_IDS.includes(value.theme) ? value.theme : base.theme,
+        uiStyle: UI_STYLE_IDS.includes(value.uiStyle) ? value.uiStyle : base.uiStyle,
+        blur: clampInt(value.blur, 0, 40, base.blur),
+        font: FONT_IDS.includes(value.font) ? value.font : base.font,
+        fontSize: clampInt(value.fontSize, 11, 20, base.fontSize),
+        saveMode: value.saveMode === 'manual' ? 'manual' : 'auto',
+        undoLimit: clampInt(value.undoLimit, 5, 200, base.undoLimit),
+        buttonGroups: value.buttonGroups !== false,
+        groupDelay: clampInt(value.groupDelay, 0, 1000, base.groupDelay),
+        maxSegmentHeight: clampInt(value.maxSegmentHeight, 80, 800, base.maxSegmentHeight),
+        aiPreset: AI_PRESET_IDS.includes(value.aiPreset) ? value.aiPreset : base.aiPreset,
+        aiCustom: typeof value.aiCustom === 'string' ? value.aiCustom.slice(0, 4000) : '',
+        shortcuts,
+        defaultWidth: clampInt(value.defaultWidth, MIN_W, 1600, base.defaultWidth),
+        defaultHeight: clampInt(value.defaultHeight, MIN_H, 1200, base.defaultHeight),
+      };
+    }
+
+    function readSettings() {
+      if (cachedSettings !== null) return cachedSettings;
+      try {
+        const raw = window.localStorage?.getItem(SETTINGS_KEY);
+        cachedSettings = raw === null || raw === undefined
+          ? defaultSettings()
+          : sanitizeSettings(JSON.parse(raw));
+      } catch {
+        cachedSettings = defaultSettings();
+      }
+      return cachedSettings;
+    }
+
+    /** Persist a patch and notify every mounted consumer immediately. */
+    function writeSettings(patch) {
+      const current = readSettings();
+      const next = sanitizeSettings({ ...current, ...patch });
+      cachedSettings = next;
+      try {
+        window.localStorage?.setItem(SETTINGS_KEY, JSON.stringify(next));
+      } catch {
+        /* Storage may be unavailable; the session still uses the new value. */
+      }
+      for (const listener of [...settingsListeners]) {
+        try {
+          listener(next);
+        } catch {
+          /* One failing consumer must not block the others. */
+        }
+      }
+      try {
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function'
+          && typeof CustomEvent === 'function') {
+          window.dispatchEvent(new CustomEvent(SETTINGS_EVENT));
+        }
+      } catch {
+        /* CustomEvent is unavailable in some test shims. */
+      }
+      return next;
+    }
+
+    /** @param {(settings: any) => void} listener */
+    function subscribeSettings(listener) {
+      settingsListeners.add(listener);
+      return () => settingsListeners.delete(listener);
+    }
+
+    /** Resolve the AI system instruction selected in settings. */
+    function aiInstruction(settings) {
+      if (settings.aiPreset === 'custom') return String(settings.aiCustom ?? '').trim().slice(0, 4000);
+      return AI_PRESET_PROMPTS[settings.aiPreset] ?? AI_PRESET_PROMPTS.balanced;
+    }
+
+    // ------------------------------------------------------------------
+    // Shortcut helpers
+    // ------------------------------------------------------------------
+    const SHORTCUT_NAMED_CODES = {
+      enter: 'Enter',
+      return: 'Enter',
+      esc: 'Escape',
+      escape: 'Escape',
+      space: 'Space',
+      spacebar: 'Space',
+      tab: 'Tab',
+      backspace: 'Backspace',
+      delete: 'Delete',
+      del: 'Delete',
+      insert: 'Insert',
+      home: 'Home',
+      end: 'End',
+      pageup: 'PageUp',
+      pagedown: 'PageDown',
+      arrowup: 'ArrowUp',
+      up: 'ArrowUp',
+      arrowdown: 'ArrowDown',
+      down: 'ArrowDown',
+      arrowleft: 'ArrowLeft',
+      left: 'ArrowLeft',
+      arrowright: 'ArrowRight',
+      right: 'ArrowRight',
+      minus: 'Minus',
+      equal: 'Equal',
+      comma: 'Comma',
+      period: 'Period',
+      slash: 'Slash',
+      semicolon: 'Semicolon',
+      quote: 'Quote',
+      backquote: 'Backquote',
+      bracketleft: 'BracketLeft',
+      bracketright: 'BracketRight',
+      backslash: 'Backslash',
+    };
+    const SHORTCUT_DISPLAY_TOKENS = {
+      Space: 'Space', Enter: 'Enter', Tab: 'Tab', Escape: 'Esc', Backspace: 'Backspace',
+      Delete: 'Delete', Insert: 'Insert', Home: 'Home', End: 'End',
+      PageUp: 'PageUp', PageDown: 'PageDown',
+      ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
+      Minus: 'Minus', Equal: 'Equal', Comma: 'Comma', Period: 'Period', Slash: 'Slash',
+      Semicolon: 'Semicolon', Quote: 'Quote', Backquote: 'Backquote',
+      BracketLeft: 'BracketLeft', BracketRight: 'BracketRight', Backslash: 'Backslash',
+    };
+
+    /** @param {string} token @returns {string} */
+    function shortcutCodeForToken(token) {
+      const text = String(token ?? '').trim();
+      if (text === '') return '';
+      if (/^[a-zA-Z]$/u.test(text)) return `Key${text.toUpperCase()}`;
+      if (/^[0-9]$/u.test(text)) return `Digit${text}`;
+      if (/^F([1-9]|1[0-9]|2[0-4])$/iu.test(text)) return text.toUpperCase();
+      return SHORTCUT_NAMED_CODES[text.toLowerCase()] ?? '';
+    }
+
+    /** @param {string} code @returns {string} */
+    function shortcutDisplayToken(code) {
+      if (/^Key[A-Z]$/u.test(code)) return code.slice(3);
+      if (/^Digit[0-9]$/u.test(code)) return code.slice(5);
+      return SHORTCUT_DISPLAY_TOKENS[code] ?? code;
+    }
+
+    /**
+     * Parse a canonical chord such as `Ctrl+Shift+N` into the shortcut
+     * service's `{code, modifiers}` shape plus the raw booleans used by the
+     * page-level keydown fallback.
+     */
+    function parseShortcut(value) {
+      const text = String(value ?? '').trim();
+      if (text === '') return null;
+      const parts = text.split('+').map((part) => part.trim()).filter((part) => part !== '');
+      if (parts.length < 2) return null;
+      const token = parts.pop();
+      let ctrl = false;
+      let shift = false;
+      let alt = false;
+      let meta = false;
+      for (const part of parts) {
+        const lower = part.toLowerCase();
+        if (lower === 'ctrl' || lower === 'control' || lower === 'primary') ctrl = true;
+        else if (lower === 'shift') shift = true;
+        else if (lower === 'alt' || lower === 'option' || lower === 'opt') alt = true;
+        else if (lower === 'meta' || lower === 'cmd' || lower === 'command' || lower === 'super') meta = true;
+        else return null;
+      }
+      if (!ctrl && !meta) return null;
+      const code = shortcutCodeForToken(token);
+      if (code === '') return null;
+      const modifiers = [];
+      if (ctrl || meta) modifiers.push('primary');
+      if (shift) modifiers.push('shift');
+      if (alt) modifiers.push('alt');
+      return { code, modifiers, ctrl, meta, shift, alt };
+    }
+
+    /** @param {KeyboardEvent | any} event */
+    function shortcutLabelForEvent(event) {
+      const parts = [];
+      if (event?.ctrlKey === true || event?.metaKey === true) parts.push('Ctrl');
+      if (event?.shiftKey === true) parts.push('Shift');
+      if (event?.altKey === true) parts.push('Alt');
+      const code = typeof event?.code === 'string' && event.code !== '' ? event.code : '';
+      let token = '';
+      if (code !== '') token = shortcutDisplayToken(code);
+      else token = shortcutDisplayToken(shortcutCodeForToken(event?.key ?? ''));
+      if (token === '' || code === 'ControlLeft' || code === 'ControlRight'
+        || code === 'ShiftLeft' || code === 'ShiftRight'
+        || code === 'AltLeft' || code === 'AltRight'
+        || code === 'MetaLeft' || code === 'MetaRight') return '';
+      parts.push(token);
+      return parts.join('+');
+    }
+
+    /** Whether a keydown event matches a parsed chord. */
+    function shortcutMatches(event, parsed) {
+      if (parsed === null || parsed === undefined) return false;
+      const code = typeof event?.code === 'string' && event.code !== ''
+        ? event.code
+        : shortcutCodeForToken(event?.key ?? '');
+      if (code !== parsed.code) return false;
+      if (Boolean(event?.shiftKey) !== parsed.shift) return false;
+      if (Boolean(event?.altKey) !== parsed.alt) return false;
+      const chord = event?.ctrlKey === true || event?.metaKey === true;
+      if (!chord) return false;
+      return true;
+    }
+
+    /**
+     * Whether the event target is a text entry surface with its own native
+     * undo/redo history. The plugin must never intercept those chords there.
+     */
+    function isEditableTarget(target) {
+      if (target === null || target === undefined) return false;
+      const tag = typeof target.tagName === 'string' ? target.tagName.toLowerCase() : '';
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+      if (target.isContentEditable === true) return true;
+      try {
+        return typeof target.closest === 'function'
+          && target.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""]') !== null;
+      } catch {
+        return false;
+      }
+    }
+
     // ------------------------------------------------------------------
     // Copy
     // ------------------------------------------------------------------
@@ -117,7 +430,7 @@ window.__ModuleLoader__.load({
         copyFailed: '复制失败',
         selectAll: '全选',
         clearSelection: '取消选择',
-        selectHint: '勾选分段可批量操作',
+        selectHint: '点击序号选择分段',
         selected: '已选 {n} 段',
         selectSegment: '选择此段',
         merge: '合并分段',
@@ -172,7 +485,7 @@ window.__ModuleLoader__.load({
         collapse: '折叠',
         expand: '展开',
         minimize: '最小化',
-        show: '显示记事本（Ctrl+Shift+N）',
+        show: '显示记事本（{shortcut}）',
         chars: '{n} 字符',
         segments: '{n} 段',
         hintNext: '点击查看下一条快捷键',
@@ -183,6 +496,8 @@ window.__ModuleLoader__.load({
         hintReset: 'Ctrl+Shift+R 复位浮窗',
         hintArrow: '↑ / ↓ 切换分段',
         hintPaste: '粘贴图片自动保存到工作区',
+        hintUndo: 'Ctrl+Z 撤销操作（输入框内为原生撤销）',
+        hintCopy: '复制按钮可复制单段或选中分段',
         resetShortcut: '复位记事本位置和尺寸',
         workspace: '工作区',
         resize: '拖动调整大小',
@@ -202,6 +517,93 @@ window.__ModuleLoader__.load({
         images: '{n} 张图片',
         dropImage: '松开以添加图片',
         imagePasteSaved: '已保存到 .dsh/notepad/images',
+        settingsTab: '记事本',
+        settingsTitle: '记事本设置',
+        settingsIntro: '所有修改即时生效，并保存在本机。设置面板关闭后浮窗会立刻套用新样式。',
+        appearance: '外观',
+        theme: '配色主题',
+        themeHost: '跟随宿主',
+        themeOcean: '海蓝',
+        themeViolet: '紫罗兰',
+        themeEmerald: '翠绿',
+        themeAmber: '琥珀',
+        themeRose: '玫瑰',
+        uiStyle: 'UI 风格',
+        uiFlat: '纯色扁平',
+        uiGlass: '毛玻璃模糊',
+        blur: '模糊程度',
+        blurHint: '仅毛玻璃风格生效，单位 px。',
+        font: '字体',
+        fontSystem: '跟随宿主',
+        fontSans: '无衬线',
+        fontSerif: '衬线',
+        fontMono: '等宽',
+        fontSize: '字号',
+        segmentMaxHeight: '分段卡片最大高度',
+        segmentMaxHeightHint: '文本超过该高度后卡片内部才出现滚动条。',
+        saveSection: '保存',
+        saveMode: '保存方式',
+        autoSave: '自动保存',
+        autoSaveHint: '关闭后改为手动保存，记事本顶部会出现保存按钮。',
+        manualSave: '手动保存',
+        saveNow: '保存记事本',
+        saveNowHint: '立即保存当前内容',
+        savedToast: '已保存',
+        manualHint: '手动保存已开启',
+        historySection: '历史',
+        undoLimit: '撤销步数上限',
+        undoLimitHint: '最多保留 {n} 步；输入框内的撤销仍由浏览器原生处理。',
+        undo: '撤销',
+        redo: '重做',
+        undone: '已撤销',
+        redone: '已重做',
+        groupsSection: '按钮组',
+        buttonGroups: '启用按钮组模式',
+        buttonGroupsHint: '启用后次级按钮 hover 展开；关闭后全部按钮直接显示。',
+        groupDelay: '展开 hover 时间阈值',
+        groupDelayHint: '鼠标停留多久后展开按钮组，单位毫秒。',
+        expandAll: '全部展开',
+        collapseAll: '全部折叠',
+        collapseSegment: '折叠分段',
+        expandSegment: '展开分段',
+        shortcutsSection: '快捷键',
+        shortcutToggle: '显示 / 隐藏记事本',
+        shortcutReset: '复位浮窗位置和尺寸',
+        shortcutUndo: '撤销',
+        shortcutRedo: '重做',
+        shortcutSave: '保存记事本',
+        shortcutResetDefaults: '恢复默认快捷键',
+        shortcutHint: '点击输入框后按下新的组合键即可绑定，必须包含 Ctrl / Cmd。',
+        aiSection: 'AI 优化',
+        aiPreset: '提示词预设',
+        aiPresetBalanced: '通用润色',
+        aiPresetConcise: '精简压缩',
+        aiPresetProfessional: '专业文档',
+        aiPresetOutline: '分点大纲',
+        aiPresetCustom: '自定义',
+        aiCustomPrompt: '自定义提示词',
+        aiCustomHint: '仅对记事本的 AI 优化请求生效；请保留 Markdown、代码与文件路径。',
+        aiPromptHint: '优化结果仍会强制只返回正文，不会添加解释或代码围栏。',
+        windowSection: '窗口',
+        defaultWidth: '默认宽度',
+        defaultHeight: '默认高度',
+        resetDefaultSize: '恢复默认尺寸数值',
+        applyResetGeometry: '立即恢复浮窗位置和尺寸',
+        geometryHint: '默认停靠在右下角；复位后使用上面的默认宽高。',
+        copySegment: '复制此段',
+        copySelected: '复制选中的 {n} 段',
+        workspaceMenu: '切换工作区',
+        switchWorkspace: '已切换到该工作区的新会话',
+        switchWorkspaceFailed: '无法切换工作区',
+        deleteSelected: '删除选中的 {n} 段（不可恢复）',
+        batchDelete: '批量删除',
+        batchDeleteTitle: '删除选中的 {n} 个分段？',
+        batchDeleteBody: '删除后无法恢复。分段里的文字和图片引用会一起移除。',
+        batchDeleteHint: '此操作不可撤销',
+        optimizeSelection: 'AI 优化选中内容',
+        optimizeSelectionEmpty: '选中的内容为空',
+        selectionOptimized: '已优化选中内容',
+        saveSettingsNote: '这些设置只保存在当前浏览器，不会写入工作区文件。',
       },
       en: {
         title: 'Notepad',
@@ -250,7 +652,7 @@ window.__ModuleLoader__.load({
         copyFailed: 'Copy failed',
         selectAll: 'Select all',
         clearSelection: 'Clear selection',
-        selectHint: 'Check segments to batch',
+        selectHint: 'Click an index to select',
         selected: '{n} selected',
         selectSegment: 'Select this segment',
         merge: 'Merge segments',
@@ -305,7 +707,7 @@ window.__ModuleLoader__.load({
         collapse: 'Collapse',
         expand: 'Expand',
         minimize: 'Minimize',
-        show: 'Show notepad (Ctrl+Shift+N)',
+        show: 'Show notepad ({shortcut})',
         chars: '{n} chars',
         segments: '{n} segments',
         hintNext: 'Click for the next shortcut',
@@ -316,6 +718,8 @@ window.__ModuleLoader__.load({
         hintReset: 'Ctrl+Shift+R resets the floating window',
         hintArrow: '↑ / ↓ switch segments',
         hintPaste: 'Pasted images are saved in the workspace',
+        hintUndo: 'Ctrl+Z undoes plugin actions (textareas keep native undo)',
+        hintCopy: 'Copy buttons copy one segment or the selection',
         resetShortcut: 'Reset the notepad position and size',
         workspace: 'Workspace',
         resize: 'Drag to resize',
@@ -335,6 +739,93 @@ window.__ModuleLoader__.load({
         images: '{n} image(s)',
         dropImage: 'Drop to add the image',
         imagePasteSaved: 'Saved under .dsh/notepad/images',
+        settingsTab: 'Notepad',
+        settingsTitle: 'Notepad settings',
+        settingsIntro: 'Changes apply immediately and are stored on this device. Closing the settings panel updates the floating notepad right away.',
+        appearance: 'Appearance',
+        theme: 'Color theme',
+        themeHost: 'Follow host',
+        themeOcean: 'Ocean',
+        themeViolet: 'Violet',
+        themeEmerald: 'Emerald',
+        themeAmber: 'Amber',
+        themeRose: 'Rose',
+        uiStyle: 'UI style',
+        uiFlat: 'Flat solid',
+        uiGlass: 'Frosted glass',
+        blur: 'Blur',
+        blurHint: 'Frosted glass only, in pixels.',
+        font: 'Font',
+        fontSystem: 'Follow host',
+        fontSans: 'Sans-serif',
+        fontSerif: 'Serif',
+        fontMono: 'Monospace',
+        fontSize: 'Font size',
+        segmentMaxHeight: 'Card max height',
+        segmentMaxHeightHint: 'A segment scrolls internally only after its text grows past this height.',
+        saveSection: 'Saving',
+        saveMode: 'Save mode',
+        autoSave: 'Auto save',
+        autoSaveHint: 'Turn off for manual saving; a save button appears in the notepad header.',
+        manualSave: 'Manual save',
+        saveNow: 'Save notepad',
+        saveNowHint: 'Save the current content now',
+        savedToast: 'Saved',
+        manualHint: 'Manual saving is on',
+        historySection: 'History',
+        undoLimit: 'Undo steps',
+        undoLimitHint: 'Keep at most {n} steps; textareas keep their native undo.',
+        undo: 'Undo',
+        redo: 'Redo',
+        undone: 'Undone',
+        redone: 'Redone',
+        groupsSection: 'Button groups',
+        buttonGroups: 'Enable button groups',
+        buttonGroupsHint: 'Secondary buttons expand on hover; disable to show every button at once.',
+        groupDelay: 'Hover delay',
+        groupDelayHint: 'How long the pointer must rest before a group expands, in milliseconds.',
+        expandAll: 'Expand all',
+        collapseAll: 'Collapse all',
+        collapseSegment: 'Collapse segment',
+        expandSegment: 'Expand segment',
+        shortcutsSection: 'Shortcuts',
+        shortcutToggle: 'Show / hide notepad',
+        shortcutReset: 'Reset window geometry',
+        shortcutUndo: 'Undo',
+        shortcutRedo: 'Redo',
+        shortcutSave: 'Save notepad',
+        shortcutResetDefaults: 'Restore default shortcuts',
+        shortcutHint: 'Click a field and press a new chord; Ctrl / Cmd is required.',
+        aiSection: 'AI improve',
+        aiPreset: 'Prompt preset',
+        aiPresetBalanced: 'Balanced polish',
+        aiPresetConcise: 'Tighten',
+        aiPresetProfessional: 'Technical writing',
+        aiPresetOutline: 'Outline',
+        aiPresetCustom: 'Custom',
+        aiCustomPrompt: 'Custom prompt',
+        aiCustomHint: 'Only used for notepad AI requests; keep Markdown, code, and file paths.',
+        aiPromptHint: 'The result is still forced to plain rewritten text with no explanation or fence.',
+        windowSection: 'Window',
+        defaultWidth: 'Default width',
+        defaultHeight: 'Default height',
+        resetDefaultSize: 'Restore default size values',
+        applyResetGeometry: 'Reset window position and size now',
+        geometryHint: 'The default dock is the bottom-right corner; a reset uses the default width and height above.',
+        copySegment: 'Copy this segment',
+        copySelected: 'Copy {n} selected',
+        workspaceMenu: 'Switch workspace',
+        switchWorkspace: 'Opened a new session in that workspace',
+        switchWorkspaceFailed: 'Could not switch workspace',
+        deleteSelected: 'Delete {n} selected (cannot be undone)',
+        batchDelete: 'Batch delete',
+        batchDeleteTitle: 'Delete {n} selected segments?',
+        batchDeleteBody: 'This cannot be undone. The text and image references in those segments will be removed too.',
+        batchDeleteHint: 'This action cannot be undone',
+        optimizeSelection: 'Improve selected text with AI',
+        optimizeSelectionEmpty: 'The selection is empty',
+        selectionOptimized: 'Improved the selected text',
+        saveSettingsNote: 'These settings live in this browser only; workspace files are untouched.',
       },
     };
 
@@ -345,7 +836,9 @@ window.__ModuleLoader__.load({
       'hintInsert',
       'hintToggle',
       'hintReset',
+      'hintUndo',
       'hintArrow',
+      'hintCopy',
       'hintPaste',
     ];
 
@@ -658,6 +1151,94 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** Two panels and a paper plane: send into a new session. */
+    function NewSessionSendIcon({ size = 16 }) {
+      return h(
+        Svg,
+        { size, viewBox: '0 0 16 16' },
+        h('rect', {
+          x: 1.9, y: 3.2, width: 5.1, height: 9.4, rx: 1.4,
+          stroke: 'currentColor', strokeWidth: 1.25,
+        }),
+        h('rect', {
+          x: 8.7, y: 3.2, width: 5.4, height: 9.4, rx: 1.4,
+          stroke: 'currentColor', strokeWidth: 1.25,
+        }),
+        h('path', {
+          d: 'M9.6 8.1 13.4 6.4 11.6 10.2 10.8 8.4Z',
+          stroke: 'currentColor', strokeWidth: 1.1,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }),
+      );
+    }
+
+    /** Floppy disk with a small arrow: save the note now. */
+    function SaveIcon({ size = 16 }) {
+      return h(
+        Svg,
+        { size, viewBox: '0 0 16 16' },
+        h('path', {
+          d: 'M3.2 2.6h7.1l2.5 2.5v8.3H3.2Z',
+          stroke: 'currentColor', strokeWidth: 1.25,
+          strokeLinejoin: 'round',
+        }),
+        h('path', {
+          d: 'M5.2 2.6v3.4h4V2.6M5.2 13.4v-3.2h5.6v3.2',
+          stroke: 'currentColor', strokeWidth: 1.15,
+          strokeLinejoin: 'round',
+        }),
+        h('path', {
+          d: 'M10.9 9.3v2.9M9.7 11.1l1.2 1.2 1.2-1.2',
+          stroke: 'currentColor', strokeWidth: 1.15,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }),
+      );
+    }
+
+    /** Curved arrow pointing forward: redo the last undone action. */
+    function RedoIcon({ size = 16 }) {
+      return h(
+        Svg,
+        { size, viewBox: '0 0 16 16' },
+        h('path', {
+          d: 'M10.6 4.2 13.2 6.8l-2.6 2.6',
+          stroke: 'currentColor', strokeWidth: 1.35,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }),
+        h('path', {
+          d: 'M13 6.8H7.7c-2.7 0-4.9 2.2-4.9 4.9',
+          stroke: 'currentColor', strokeWidth: 1.35,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }),
+      );
+    }
+
+    /** Chevron pointing down: expand a card or open a dropdown. */
+    function ChevronDownIcon({ size = 16 }) {
+      return h(
+        Svg,
+        { size, viewBox: '0 0 16 16' },
+        h('path', {
+          d: 'M4.2 6.2 8 10l3.8-3.8',
+          stroke: 'currentColor', strokeWidth: 1.35,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }),
+      );
+    }
+
+    /** Chevron pointing right: a collapsed card. */
+    function ChevronRightIcon({ size = 16 }) {
+      return h(
+        Svg,
+        { size, viewBox: '0 0 16 16' },
+        h('path', {
+          d: 'M6.4 4.2 10.2 8l-3.8 3.8',
+          stroke: 'currentColor', strokeWidth: 1.35,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }),
+      );
+    }
+
     /** Circular arrow: reset the floating window geometry. */
     function ResetIcon({ size = 16 }) {
       return h(
@@ -730,8 +1311,14 @@ window.__ModuleLoader__.load({
     // ------------------------------------------------------------------
     // Styles
     // ------------------------------------------------------------------
-    const FONT_STACK = 'var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Helvetica Neue",Helvetica,Arial,sans-serif)';
-    const CSS = `.dsh-np-card{--np-accent:var(--dsw-alias-state-business-primary,#4176e6);--np-accent-fg:#fff;--np-surface:var(--dsw-alias-bg-layer-1,#fff);--np-surface-2:var(--dsw-alias-bg-layer-2,#fff);position:fixed;z-index:30;display:flex;flex-direction:column;box-sizing:border-box;width:${DEFAULT_W}px;max-width:calc(100vw - 16px);height:${DEFAULT_H}px;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.12));border-radius:14px;background:var(--np-surface);color:var(--dsw-alias-label-primary,#1f2430);box-shadow:var(--dsw-elevation-prominent,0 20px 50px rgb(15 23 42/.22),0 2px 8px rgb(15 23 42/.08));overflow:hidden;backdrop-filter:saturate(1.2) blur(10px);font-family:${FONT_STACK};font-size:13px;line-height:1.5;transition:height .2s ease,opacity .18s ease,transform .18s ease}
+    const CSS = `.dsh-np-card{--np-accent:var(--dsw-alias-state-business-primary,#4176e6);--np-accent-fg:#fff;--np-surface:var(--dsw-alias-bg-layer-1,#fff);--np-surface-2:var(--dsw-alias-bg-layer-2,#fff);--np-tint:transparent;--np-font:${FONT_STACK};--np-font-size:13px;--np-blur:10px;--np-group-delay:.18s;--np-seg-max:240px;position:fixed;z-index:30;display:flex;flex-direction:column;box-sizing:border-box;width:${DEFAULT_W}px;max-width:calc(100vw - 16px);height:${DEFAULT_H}px;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.12));border-radius:14px;background:color-mix(in srgb,var(--np-tint) 4%,var(--np-surface));color:var(--dsw-alias-label-primary,#1f2430);box-shadow:var(--dsw-elevation-prominent,0 20px 50px rgb(15 23 42/.22),0 2px 8px rgb(15 23 42/.08));overflow:hidden;backdrop-filter:saturate(1.2) blur(var(--np-blur));font-family:var(--np-font,${FONT_STACK});font-size:var(--np-font-size,13px);line-height:1.5;transition:height .2s ease,opacity .18s ease,transform .18s ease}
+.dsh-np-card[data-np-style=glass]{--np-surface:color-mix(in srgb,var(--dsw-alias-bg-layer-1,#fff) 84%,transparent);--np-surface-2:color-mix(in srgb,var(--dsw-alias-bg-layer-2,#fff) 90%,transparent);backdrop-filter:saturate(1.25) blur(var(--np-blur))}
+.dsh-np-card[data-np-style=flat]{backdrop-filter:none;box-shadow:var(--dsw-elevation-prominent,0 12px 32px rgb(15 23 42/.18),0 1px 3px rgb(15 23 42/.08))}
+.dsh-np-card[data-np-theme=ocean]{--np-accent:#2f6fed;--np-tint:#2f6fed}
+.dsh-np-card[data-np-theme=violet]{--np-accent:#7c5cf0;--np-tint:#7c5cf0}
+.dsh-np-card[data-np-theme=emerald]{--np-accent:#12986b;--np-tint:#12986b}
+.dsh-np-card[data-np-theme=amber]{--np-accent:#c07a11;--np-tint:#f0a61f}
+.dsh-np-card[data-np-theme=rose]{--np-accent:#d64b76;--np-tint:#d64b76}
 .dsh-np-card[data-hidden=true]{opacity:0;visibility:hidden;pointer-events:none;transform:translateY(10px) scale(.97);transition:opacity .18s ease,transform .18s ease,visibility 0s linear .18s}
 .dsh-np-card[data-resizing=true]{transition:none;user-select:none}
 .dsh-np-card[data-minimized=true]{border-bottom-color:transparent}
@@ -744,7 +1331,19 @@ window.__ModuleLoader__.load({
 .dsh-np-dot[data-state=error]{background:var(--dsw-alias-state-error-primary,#e25555)}
 .dsh-np-dot[data-state=saved]{background:var(--dsw-alias-state-success-primary,#2fb36d)}
 .dsh-np-title{flex:none;font-size:12.5px;font-weight:650;letter-spacing:.01em;white-space:nowrap}
-.dsh-np-workspace{min-width:0;max-width:104px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 7px;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));color:var(--dsw-alias-label-tertiary,#6b7280);font-size:10.5px;line-height:16px;flex:0 1 auto}
+.dsh-np-ws{position:relative;display:inline-flex;min-width:0;flex:0 1 auto;max-width:128px}
+.dsh-np-workspace{min-width:0;max-width:112px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 5px 1px 7px;border:0;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));color:var(--dsw-alias-label-tertiary,#6b7280);font:inherit;font-size:10.5px;line-height:16px;flex:0 1 auto;display:inline-flex;align-items:center;gap:2px;cursor:pointer}
+.dsh-np-workspace:hover{color:var(--dsw-alias-label-primary,#1f2430);background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.1))}
+.dsh-np-ws[data-open=true] .dsh-np-workspace{color:var(--np-accent);background:color-mix(in srgb,var(--np-accent) 12%,transparent)}
+.dsh-np-ws-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-np-ws-chevron{flex:none;opacity:.7}
+.dsh-np-ws-menu{position:absolute;top:calc(100% + 5px);left:0;z-index:40;min-width:168px;max-width:250px;max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:1px;padding:4px;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.14));border-radius:9px;background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:var(--dsw-elevation-prominent,0 14px 34px rgb(15 23 42/.22));animation:dsh-np-fade .12s ease-out}
+.dsh-np-ws-item{display:flex;align-items:center;gap:6px;width:100%;padding:4px 7px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#4b5563);font:inherit;font-size:11.5px;line-height:17px;text-align:left;cursor:pointer}
+.dsh-np-ws-item:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));color:var(--dsw-alias-label-primary,#1f2430)}
+.dsh-np-ws-item[data-current=true]{color:var(--np-accent);font-weight:600}
+.dsh-np-ws-item-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-np-ws-item-count{flex:none;margin-left:auto;padding:0 5px;border-radius:8px;background:color-mix(in srgb,var(--np-accent) 12%,transparent);color:var(--np-accent);font-size:9.5px;line-height:15px;font-variant-numeric:tabular-nums}
+.dsh-np-ws-empty{padding:5px 7px;color:var(--dsw-alias-label-caption,#9aa3b2);font-size:11px}
 .dsh-np-spacer{flex:1 1 auto;min-width:0}
 .dsh-np-btn{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;width:27px;height:27px;padding:0;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-tertiary,#6b7280);cursor:pointer;transition:background .12s,color .12s,opacity .12s}
 .dsh-np-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));color:var(--dsw-alias-label-primary,#1f2430)}
@@ -764,6 +1363,11 @@ window.__ModuleLoader__.load({
 .dsh-np-seg{display:flex;flex-direction:column;flex:none;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.12));border-radius:10px;background:var(--np-surface-2);transition:border-color .12s,background .12s,opacity .12s;animation:dsh-np-item-in .16s ease-out}
 .dsh-np-seg[data-selected=true]{border-color:var(--np-accent);background:color-mix(in srgb,var(--np-accent) 6%,var(--np-surface-2));box-shadow:0 0 0 1px var(--np-accent) inset}
 .dsh-np-seg[data-archived=true]{border-style:dashed;background:transparent;opacity:.82;animation:none}
+.dsh-np-seg[data-leaving=true]{animation:dsh-np-item-out .16s ease-in forwards;pointer-events:none}
+.dsh-np-seg[data-collapsed=true] .dsh-np-editor{display:none}
+.dsh-np-seg-preview{padding:0 10px 8px;color:var(--dsw-alias-label-secondary,#4b5563);font-size:12px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;max-height:38px;overflow:hidden;mask-image:linear-gradient(180deg,#000 60%,transparent)}
+.dsh-np-fold{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:20px;padding:0;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-caption,#9aa3b2);cursor:pointer}
+.dsh-np-fold:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));color:var(--dsw-alias-label-primary,#1f2430)}
 .dsh-np-seg-head{display:flex;align-items:center;gap:3px;flex:none;min-height:30px;padding:3px 5px 0 7px;box-sizing:border-box}
 .dsh-np-seg[data-reorder-drag=true]{opacity:.45}
 .dsh-np-seg[data-drop-before=true]{box-shadow:0 -2px 0 0 var(--np-accent)}
@@ -785,27 +1389,30 @@ window.__ModuleLoader__.load({
 .dsh-np-segbtn[data-ai=true]{color:var(--np-accent);opacity:1}
 .dsh-np-segbtn[data-danger=true]:hover:not(:disabled){color:var(--dsw-alias-state-error-primary,#e25555);background:var(--dsw-alias-interactive-bg-hover-danger,rgb(236 19 19/.05))}
 .dsh-np-segbtn:disabled{opacity:.3;cursor:default}
-.dsh-np-actiongroup{display:inline-flex;align-items:center;flex:none;padding:1px;border:1px solid transparent;border-radius:8px;transition:border-color .12s ease .12s,background .12s ease .12s}
-.dsh-np-actiongroup:hover{border-color:var(--dsw-alias-border-l2,rgb(15 23 42/.14));background:color-mix(in srgb,var(--np-surface-2) 58%,transparent);transition-delay:.18s}
+.dsh-np-actiongroup{display:inline-flex;align-items:center;flex:none;padding:1px;border:1px solid transparent;border-radius:8px;transition:border-color .12s ease var(--np-group-delay,.18s),background .12s ease var(--np-group-delay,.18s)}
+.dsh-np-actiongroup:hover{border-color:var(--dsw-alias-border-l2,rgb(15 23 42/.14));background:color-mix(in srgb,var(--np-surface-2) 58%,transparent)}
 .dsh-np-actiongroup:focus-within{border-color:var(--dsw-alias-border-l2,rgb(15 23 42/.14));background:color-mix(in srgb,var(--np-surface-2) 58%,transparent);transition-delay:0s}
-.dsh-np-group-extra{width:0!important;min-width:0;padding:0;border:0;opacity:0;visibility:hidden;pointer-events:none;overflow:hidden;transition:width .14s ease .12s,opacity .12s ease .12s,visibility 0s linear .26s}
-.dsh-np-actiongroup:hover .dsh-np-group-extra{width:24px!important;opacity:1;visibility:visible;pointer-events:auto;transition:width .14s ease .2s,opacity .12s ease .2s,visibility 0s linear .2s}
+.dsh-np-group-extra{width:0!important;min-width:0;padding:0;border:0;opacity:0;visibility:hidden;pointer-events:none;overflow:hidden;transition:width .14s ease var(--np-group-delay,.18s),opacity .12s ease var(--np-group-delay,.18s),visibility 0s linear var(--np-group-delay,.18s)}
+.dsh-np-actiongroup:hover .dsh-np-group-extra{width:24px!important;opacity:1;visibility:visible;pointer-events:auto}
 .dsh-np-actiongroup:focus-within .dsh-np-group-extra{width:24px!important;opacity:1;visibility:visible;pointer-events:auto;transition-delay:0s}
 .dsh-np-actiongroup[data-size=bar]:hover .dsh-np-group-extra,.dsh-np-actiongroup[data-size=bar]:focus-within .dsh-np-group-extra{width:27px!important}
-.dsh-np-seg-text{display:block;width:100%;box-sizing:border-box;padding:2px 10px 8px;border:0;outline:0;resize:none;background:transparent;color:inherit;font-family:${FONT_STACK};font-size:13px;line-height:1.6;min-height:26px;max-height:240px;overflow-y:hidden;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2}
+.dsh-np-actiongroup[data-expanded=true]{border-color:transparent;background:transparent}
+.dsh-np-actiongroup[data-expanded=true] .dsh-np-group-extra{width:24px!important;opacity:1;visibility:visible;pointer-events:auto;transition:none}
+.dsh-np-actiongroup[data-expanded=true][data-size=bar] .dsh-np-group-extra{width:27px!important}
+.dsh-np-seg-text{display:block;width:100%;box-sizing:border-box;padding:2px 10px 8px;border:0;outline:0;resize:none;background:transparent;color:inherit;font-family:var(--np-font,${FONT_STACK});font-size:var(--np-font-size,13px);line-height:1.6;min-height:26px;max-height:var(--np-seg-max,240px);overflow-y:hidden;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2}
 .dsh-np-seg-text::placeholder{color:var(--dsw-alias-label-caption,#9aa3b2)}
 .dsh-np-seg-text:disabled{opacity:.6}
 .dsh-np-file{display:none}
 .dsh-np-editor{display:flex;flex-direction:column;min-width:0;border-radius:0 0 9px 9px;transition:background .12s}
 .dsh-np-editor[data-drag=true]{background:color-mix(in srgb,var(--np-accent) 8%,transparent);box-shadow:inset 0 0 0 1.5px var(--np-accent)}
 .dsh-np-medias{display:flex;flex-wrap:wrap;gap:5px;padding:5px 9px 0}
-.dsh-np-img{display:inline-flex;align-items:center;gap:4px;max-width:100%;height:38px;padding:2px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.12));border-radius:8px;background:var(--np-surface);box-shadow:0 1px 2px rgb(15 23 42/.05)}
-.dsh-np-img[data-pending=true]{padding-right:8px;color:var(--dsw-alias-label-tertiary,#6b7280)}
+.dsh-np-img{position:relative;display:inline-flex;align-items:center;gap:4px;max-width:100%;height:38px;padding:2px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.12));border-radius:8px;background:var(--np-surface);box-shadow:0 1px 2px rgb(15 23 42/.05)}
+.dsh-np-img[data-pending=true]{padding-right:6px;color:var(--dsw-alias-label-tertiary,#6b7280)}
 .dsh-np-img-open{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;padding:0;border:0;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));overflow:hidden;cursor:zoom-in}
 .dsh-np-img-open img{display:block;width:100%;height:100%;object-fit:cover}
 .dsh-np-img-name{max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;line-height:13px;color:var(--dsw-alias-label-secondary,#4b5563)}
-.dsh-np-img-remove{display:inline-flex;align-items:center;justify-content:center;flex:none;width:17px;height:17px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--dsw-alias-label-caption,#9aa3b2);cursor:pointer}
-.dsh-np-img-remove:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));color:var(--dsw-alias-state-error-primary,#e25555)}
+.dsh-np-img-remove{position:absolute;top:-6px;right:-6px;z-index:2;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;padding:0;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.16));border-radius:50%;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-secondary,#4b5563);box-shadow:0 1px 3px rgb(15 23 42/.18);cursor:pointer;opacity:.92}
+.dsh-np-img-remove:hover{background:var(--dsw-alias-state-error-primary,#e25555);border-color:transparent;color:#fff;opacity:1}
 .dsh-np-img-spinner{flex:none;width:14px;height:14px;border:2px solid color-mix(in srgb,var(--np-accent) 30%,transparent);border-top-color:var(--np-accent);border-radius:50%;animation:dsh-np-spin .8s linear infinite}
 .dsh-np-mini-spinner{flex:none;width:12px;height:12px;border:1.8px solid color-mix(in srgb,var(--np-accent) 30%,transparent);border-top-color:var(--np-accent);border-radius:50%;animation:dsh-np-spin .8s linear infinite}
 .dsh-np-seg-archived-text{padding:2px 10px 9px;color:var(--dsw-alias-label-secondary,#4b5563);font-size:13px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
@@ -860,6 +1467,56 @@ button.dsh-np-hint:hover{opacity:1;color:var(--dsw-alias-label-secondary,#4b5563
 .dsh-np-restore-badge{position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;border-radius:9px;background:var(--dsw-alias-state-business-primary,#4176e6);color:#fff;font-size:9.5px;font-weight:700;line-height:16px;text-align:center;font-variant-numeric:tabular-nums;box-shadow:0 0 0 1.5px var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-layer-1,#fff))}
 [data-row-key^="workspace:"][data-np-unsent]{position:relative}
 [data-row-key^="workspace:"][data-np-unsent]::after{content:attr(data-np-unsent);position:absolute;top:-4px;left:1px;z-index:2;min-width:15px;height:15px;padding:0 4px;box-sizing:border-box;border-radius:8px;background:var(--dsw-alias-state-business-primary,#4176e6);color:#fff;font-size:9.5px;font-weight:700;line-height:15px;text-align:center;font-variant-numeric:tabular-nums;pointer-events:none;box-shadow:0 0 0 1.5px var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-layer-1,#fff))}
+@keyframes dsh-np-item-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(-4px) scale(.98)}}
+.dsh-np-set{display:flex;flex-direction:column;gap:12px;max-width:820px;padding:2px 0;font-size:13px;color:var(--dsw-alias-label-primary,#1f2430)}
+.dsh-np-set-head{display:flex;flex-direction:column;gap:3px}
+.dsh-np-set-title{font-size:15px;font-weight:650;line-height:1.35}
+.dsh-np-set-intro{font-size:12px;line-height:1.55;color:var(--dsw-alias-label-secondary,#4b5563)}
+.dsh-np-set-grid{display:flex;flex-direction:column;gap:10px}
+.dsh-np-set-card{border:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08));border-radius:12px;background:var(--dsw-alias-bg-layer-1,#fff);overflow:visible}
+.dsh-np-set-card-head{display:flex;align-items:center;gap:7px;padding:9px 13px;border-bottom:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08));font-size:12.5px;font-weight:650;line-height:1.4}
+.dsh-np-set-card-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:11px 16px;padding:11px 13px}
+.dsh-np-set-field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.dsh-np-set-field[data-wide=true]{grid-column:1/-1}
+.dsh-np-set-label{font-size:12px;font-weight:600;line-height:1.4;color:var(--dsw-alias-label-primary,#1f2430)}
+.dsh-np-set-hint{font-size:11px;line-height:1.5;color:var(--dsw-alias-label-secondary,#4b5563)}
+.dsh-np-set-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-height:30px}
+.dsh-np-drop{position:relative;min-width:0;width:100%}
+.dsh-np-drop-btn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:30px;box-sizing:border-box;padding:4px 9px;border:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.1));border-radius:8px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1f2430);font:inherit;font-size:12.5px;line-height:1.4;text-align:left;cursor:pointer;outline:none}
+.dsh-np-drop-btn:hover{border-color:var(--dsw-alias-border-l2,rgb(15 23 42/.18))}
+.dsh-np-drop-btn:focus-visible{border-color:var(--dsw-alias-state-business-primary,#4176e6);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 20%,transparent)}
+.dsh-np-drop-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-np-drop-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:60;display:flex;flex-direction:column;gap:1px;max-height:260px;overflow-y:auto;padding:4px;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.14));border-radius:9px;background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:var(--dsw-elevation-prominent,0 14px 34px rgb(15 23 42/.22));animation:dsh-np-fade .12s ease-out}
+.dsh-np-drop-item{display:flex;align-items:center;gap:6px;width:100%;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#4b5563);font:inherit;font-size:12px;line-height:1.4;text-align:left;cursor:pointer}
+.dsh-np-drop-item:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));color:var(--dsw-alias-label-primary,#1f2430)}
+.dsh-np-drop-item[data-active=true]{color:var(--dsw-alias-state-business-primary,#4176e6);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 9%,transparent);font-weight:600}
+.dsh-np-drop-check{margin-left:auto;flex:none}
+.dsh-np-set-number,.dsh-np-key{width:100%;box-sizing:border-box;min-height:30px;padding:4px 9px;border:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.1));border-radius:8px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1f2430);font:inherit;font-size:12.5px;outline:none}
+.dsh-np-set-number:focus,.dsh-np-key:focus{border-color:var(--dsw-alias-state-business-primary,#4176e6);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 18%,transparent)}
+.dsh-np-set-number:disabled,.dsh-np-key:disabled{opacity:.45;cursor:default}
+.dsh-np-key{font-family:var(--ds-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);cursor:text;letter-spacing:.02em}
+.dsh-np-set-textarea{width:100%;box-sizing:border-box;min-height:92px;padding:7px 9px;border:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.1));border-radius:8px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1f2430);font:inherit;font-size:12.5px;line-height:1.55;resize:vertical;outline:none}
+.dsh-np-set-textarea:focus{border-color:var(--dsw-alias-state-business-primary,#4176e6);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 18%,transparent)}
+.dsh-np-toggle{display:inline-flex;align-items:center;gap:9px;padding:3px 11px 3px 4px;border:1px solid transparent;border-radius:999px;background:transparent;color:inherit;font:inherit;cursor:pointer;outline:none}
+.dsh-np-toggle:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06))}
+.dsh-np-toggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:1px}
+.dsh-np-toggle-track{position:relative;display:inline-block;flex:none;width:34px;height:18px;border-radius:999px;background:var(--dsw-alias-border-l3,rgb(15 23 42/.2));transition:background .15s ease}
+.dsh-np-toggle.on .dsh-np-toggle-track{background:var(--dsw-alias-state-business-primary,#4176e6)}
+.dsh-np-toggle-knob{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgb(0 0 0/.25);transition:transform .15s ease}
+.dsh-np-toggle.on .dsh-np-toggle-knob{transform:translateX(16px)}
+.dsh-np-toggle-label{font-size:12px;line-height:1.4;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap}
+.dsh-np-toggle.on .dsh-np-toggle-label{color:var(--dsw-alias-label-primary,#1f2430);font-weight:600}
+.dsh-np-set-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dsh-np-set-btn{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:3px 11px;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.14));border-radius:8px;background:var(--dsw-alias-bg-layer-2,#fff);color:var(--dsw-alias-label-primary,#1f2430);font:inherit;font-size:12px;cursor:pointer}
+.dsh-np-set-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06))}
+.dsh-np-set-btn[data-primary=true]{border-color:transparent;background:var(--dsw-alias-state-business-primary,#4176e6);color:#fff}
+.dsh-np-set-btn[data-danger=true]{color:var(--dsw-alias-state-error-primary,#e25555)}
+.dsh-np-set-note{padding:0 13px 11px;font-size:11px;line-height:1.5;color:var(--dsw-alias-label-secondary,#4b5563)}
+.dsh-np-set-kbd{display:inline-block;padding:0 5px;border:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.12));border-radius:4px;background:var(--dsw-alias-bg-layer-2,#fff);font-family:var(--ds-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:10.5px;line-height:16px}
+body[data-ds-dark-theme] .dsh-np-set-card,body[data-ds-dark-theme] .dsh-np-drop-btn,body[data-ds-dark-theme] .dsh-np-drop-menu,body[data-ds-dark-theme] .dsh-np-set-number,body[data-ds-dark-theme] .dsh-np-key,body[data-ds-dark-theme] .dsh-np-set-textarea,body[data-ds-dark-theme] .dsh-np-set-btn{background:var(--dsw-alias-bg-layer-1,#1f1f22);color:var(--dsw-alias-label-primary,#e8e8ea)}
+body[data-ds-dark-theme] .dsh-np-set-hint,body[data-ds-dark-theme] .dsh-np-set-intro,body[data-ds-dark-theme] .dsh-np-toggle-label{color:var(--dsw-alias-label-secondary,#a8adb8)}
+body[data-ds-dark-theme] .dsh-np-toggle-knob{background:#f4f5f7}
+body[data-ds-dark-theme] .dsh-np-ws-menu{background:var(--dsw-alias-bg-layer-1,#1f1f22)}
 @keyframes dsh-np-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 @keyframes dsh-np-fade{from{opacity:0}to{opacity:1}}
 @keyframes dsh-np-rise{from{opacity:0;transform:translate(-50%,4px)}to{opacity:1;transform:translate(-50%,0)}}
@@ -1211,14 +1868,15 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       return image;
     }
 
-    function autoGrow(element) {
+    function autoGrow(element, maxHeight = MAX_SEGMENT_HEIGHT) {
       if (element === null || element === undefined || element.style === undefined) return;
+      const limit = clampInt(maxHeight, 80, 800, MAX_SEGMENT_HEIGHT);
       try {
         element.style.height = 'auto';
         const height = Number(element.scrollHeight);
         if (Number.isFinite(height) && height > 0) {
-          const capped = height > MAX_SEGMENT_HEIGHT;
-          element.style.height = `${Math.min(MAX_SEGMENT_HEIGHT, Math.max(26, height))}px`;
+          const capped = height > limit;
+          element.style.height = `${Math.min(limit, Math.max(26, height))}px`;
           // Keep the native scrollbar hidden until the card really reaches
           // its limit; otherwise CSS overflow:auto can reserve a gutter early.
           element.style.overflowY = capped ? 'auto' : 'hidden';
@@ -1271,11 +1929,12 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
     }
 
     function readStoredUi() {
+      const settings = readSettings();
       const base = {
         x: null,
         y: null,
-        width: DEFAULT_W,
-        height: DEFAULT_H,
+        width: settings.defaultWidth,
+        height: settings.defaultHeight,
         minimized: false,
         hidden: false,
         showArchive: false,
@@ -1288,8 +1947,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         return {
           x: Number.isFinite(parsed.x) ? parsed.x : null,
           y: Number.isFinite(parsed.y) ? parsed.y : null,
-          width: Number.isFinite(parsed.width) ? parsed.width : DEFAULT_W,
-          height: Number.isFinite(parsed.height) ? parsed.height : DEFAULT_H,
+          width: Number.isFinite(parsed.width) ? parsed.width : settings.defaultWidth,
+          height: Number.isFinite(parsed.height) ? parsed.height : settings.defaultHeight,
           minimized: parsed.minimized === true,
           hidden: parsed.hidden === true,
           showArchive: parsed.showArchive === true,
@@ -1348,11 +2007,11 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       return readResponse(response);
     }
 
-    async function optimizeNoteText(root, sessionId, text, title) {
+    async function optimizeNoteText(root, sessionId, text, title, signature) {
       const response = await fetch(`${API}/optimize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ root, sessionId, text, title }),
+        body: JSON.stringify({ root, sessionId, text, title, system: signature }),
       });
       return readResponse(response);
     }
@@ -1427,21 +2086,69 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
     /** Mounted notepads register here so a host shortcut can reset them. */
     const resetHandlers = new Set();
 
-    /** Whether the host shortcut service already owns Ctrl/Cmd+Shift+0. */
-    let resetShortcutHandledByHost = false;
+    /** Mounted notepads register their visibility / history / save entry points. */
+    const visibilityHandlers = new Set();
+    const historyHandlers = new Set();
+    const saveHandlers = new Set();
 
-    /** Ask every mounted notepad to reset its position and size. */
-    function requestUiReset() {
+    /** Whether the host shortcut service already owns the registered chords. */
+    const hostHandledShortcuts = new Set();
+
+    function invokeHandlers(handlers, argument) {
       let handled = false;
-      for (const handler of resetHandlers) {
+      for (const handler of handlers) {
         try {
-          handler();
+          handler(argument);
           handled = true;
         } catch {
           /* One failing overlay must not block the others. */
         }
       }
       return handled;
+    }
+
+    /** Ask every mounted notepad to reset its position and size. */
+    function requestUiReset() {
+      return invokeHandlers(resetHandlers);
+    }
+
+    /** Ask every mounted notepad to show / hide itself. */
+    function requestToggleVisibility() {
+      return invokeHandlers(visibilityHandlers);
+    }
+
+    /** Ask every mounted notepad to undo or redo one plugin history step. */
+    function requestHistory(direction) {
+      return invokeHandlers(historyHandlers, direction);
+    }
+
+    /** Ask every mounted notepad to flush its note to disk now. */
+    function requestSaveNote() {
+      return invokeHandlers(saveHandlers);
+    }
+
+    /**
+     * Reset geometry from a surface that may render before the floating
+     * notepad mounts (the settings tab). The mounted overlay wins; without
+     * one the stored geometry is rewritten for the next mount.
+     */
+    function resetWindowGeometry() {
+      if (requestUiReset()) return true;
+      try {
+        const settings = readSettings();
+        const base = readStoredUi();
+        const next = {
+          ...base,
+          x: null,
+          y: null,
+          width: settings.defaultWidth,
+          height: settings.defaultHeight,
+        };
+        window.localStorage?.setItem(UI_KEY, JSON.stringify(next));
+      } catch {
+        /* Storage may be unavailable; the next mount still uses defaults. */
+      }
+      return false;
     }
 
     /** Read the General Settings "send behavior while busy" preference. */
@@ -1489,6 +2196,13 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const [hintIndex, setHintIndex] = useState(0);
       const [wsCounts, setWsCounts] = useState({});
       const [currentWsId, setCurrentWsId] = useState('');
+      const [wsList, setWsList] = useState([]);
+      const [wsOpen, setWsOpen] = useState(false);
+      const [settings, setSettings] = useState(readSettings);
+      const [collapsed, setCollapsed] = useState(() => new Set());
+      const [textSelection, setTextSelection] = useState(null);
+      const [leaving, setLeaving] = useState(() => new Map());
+      const [historyVer, setHistoryVer] = useState(0);
 
       const bindingRef = useRef(null);
       const rootSessionRef = useRef('');
@@ -1522,11 +2236,42 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const reorderDragRef = useRef('');
       const reorderOverRef = useRef(null);
       const imageDeleteTimersRef = useRef(new Map());
+      const settingsRef = useRef(settings);
+      const collapsedRef = useRef(collapsed);
+      const textSelectionRef = useRef(null);
+      const pendingSelectionRef = useRef(null);
+      const historyRef = useRef({ entries: [], index: 0 });
+      const historyRootRef = useRef('');
+      const historyApplyingRef = useRef(false);
+      const leaveTimersRef = useRef(new Set());
+      const archiveListRef = useRef(null);
+      const wsWrapRef = useRef(null);
+      const textareaSettersRef = useRef(new Map());
+      const fileInputSettersRef = useRef(new Map());
+
+      settingsRef.current = settings;
+      collapsedRef.current = collapsed;
 
       const setSelection = (next) => {
         selectedRef.current = next;
         setSelected(next);
       };
+
+      const setTextSelectionState = (next) => {
+        textSelectionRef.current = next;
+        setTextSelection(next);
+      };
+
+      const syncCollapsed = (next) => {
+        collapsedRef.current = next;
+        setCollapsed(next);
+      };
+
+      /** Changes whenever the archived set/order changes (archive auto-scroll). */
+      const archivedSignature = segments
+        .filter((segment) => segment.archived === true)
+        .map((segment) => segment.id)
+        .join('|');
 
       const pruneSelectionFor = (nextSegments) => {
         if (selectedRef.current.size === 0) return;
@@ -1549,6 +2294,70 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       /** Any local edit invalidates the "undo the last batch" offer. */
       const invalidateBatchUndo = () => {
         if (batchUndoRef.current !== null) setBatchUndoState(null);
+      };
+
+      // Undo / redo history -------------------------------------------------
+      const resetHistory = () => {
+        historyRef.current = { entries: [], index: 0 };
+        setHistoryVer((version) => version + 1);
+      };
+
+      const recordHistory = (before, after) => {
+        if (historyApplyingRef.current) return;
+        const signatureBefore = JSON.stringify(serializeSegments(before));
+        const signatureAfter = JSON.stringify(serializeSegments(after));
+        if (signatureBefore === signatureAfter) return;
+        const state = historyRef.current;
+        // A new branch discards the redo tail.
+        if (state.index < state.entries.length) state.entries = state.entries.slice(0, state.index);
+        state.entries.push({ before, after });
+        const limit = clampInt(settingsRef.current.undoLimit, 5, 200, 50);
+        if (state.entries.length > limit) state.entries.splice(0, state.entries.length - limit);
+        state.index = state.entries.length;
+        setHistoryVer((version) => version + 1);
+      };
+
+      /** A plain text edit is not a recorded step, but it invalidates redo. */
+      const discardRedoHistory = () => {
+        const state = historyRef.current;
+        if (state.index >= state.entries.length) return;
+        state.entries = state.entries.slice(0, state.index);
+        setHistoryVer((version) => version + 1);
+      };
+
+      /**
+       * Drop every snapshot that still contains an irreversibly deleted id,
+       * so a later undo cannot resurrect it through an older state.
+       */
+      const discardHistoryFor = (ids) => {
+        const state = historyRef.current;
+        state.entries = state.entries.filter((entry) =>
+          !entry.before.some((segment) => ids.has(segment.id))
+          && !entry.after.some((segment) => ids.has(segment.id)));
+        state.index = Math.min(state.index, state.entries.length);
+        setHistoryVer((version) => version + 1);
+      };
+
+      const applyHistory = (direction) => {
+        const state = historyRef.current;
+        const undo = direction !== 'redo';
+        const entry = undo ? state.entries[state.index - 1] : state.entries[state.index];
+        if (entry === undefined) return false;
+        historyApplyingRef.current = true;
+        try {
+          clearPendingImageDeletes();
+          setSegmentUndo(new Map());
+          setBatchUndoState(null);
+          setTextSelectionState(null);
+          const target = undo ? entry.before : entry.after;
+          commitSegments(target, { record: false });
+          state.index += undo ? -1 : 1;
+          setHistoryVer((version) => version + 1);
+          showToast(t(undo ? 'undone' : 'redone'));
+          return true;
+        } finally {
+          historyApplyingRef.current = false;
+        }
       };
 
       // Session + workspace -------------------------------------------------
@@ -1613,6 +2422,90 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         }
       }, [ui]);
 
+      // Live settings: the settings tab writes to the shared store --------
+      useEffect(() => subscribeSettings((next) => {
+        setSettings(next);
+        if (next.saveMode === 'manual') clearTimer();
+        else if (dirtyRef.current) scheduleSave();
+      }), []);
+
+      // Workspace dropdown closes on any outside pointer press -----------
+      useEffect(() => {
+        if (!wsOpen || typeof document === 'undefined') return undefined;
+        const close = (event) => {
+          const wrap = wsWrapRef.current;
+          if (wrap !== null && wrap !== undefined && typeof wrap.contains === 'function'
+            && event?.target !== undefined && event?.target !== null && wrap.contains(event.target)) return;
+          setWsOpen(false);
+        };
+        document.addEventListener('pointerdown', close, true);
+        return () => document.removeEventListener('pointerdown', close, true);
+      }, [wsOpen]);
+
+      // Never leave removal timers behind --------------------------------
+      useEffect(() => () => {
+        for (const timer of leaveTimersRef.current) clearTimeout(timer);
+        leaveTimersRef.current.clear();
+      }, []);
+
+      // Re-grow cards when the height limit or typography changes --------
+      useEffect(() => {
+        for (const element of textareaRefs.current.values()) growTextarea(element);
+      }, [settings.maxSegmentHeight, settings.fontSize, settings.font]);
+
+      // Apply a pending text selection after an AI rewrite commits ------
+      useEffect(() => {
+        const pending = pendingSelectionRef.current;
+        if (pending === null || pending === undefined) return;
+        pendingSelectionRef.current = null;
+        const element = textareaRefs.current.get(pending.id);
+        if (element === null || element === undefined) return;
+        try {
+          element.focus?.({ preventScroll: true });
+        } catch {
+          try {
+            element.focus?.();
+          } catch {
+            /* ignore */
+          }
+        }
+        try {
+          const value = typeof element.value === 'string' ? element.value : '';
+          const start = Math.max(0, Math.min(Number(pending.start) || 0, value.length));
+          const end = Math.max(start, Math.min(Number(pending.end) || start, value.length));
+          if (typeof element.setSelectionRange === 'function') element.setSelectionRange(start, end);
+        } catch {
+          /* ignore */
+        }
+        try {
+          element.scrollIntoView?.({ block: 'nearest' });
+        } catch {
+          /* ignore */
+        }
+        setTextSelectionState({
+          id: pending.id,
+          start: pending.start,
+          end: pending.end,
+        });
+      }, [segments]);
+
+      // Keep the archive list parked on its newest (top) card ------------
+      useEffect(() => {
+        if (!ui.showArchive) return undefined;
+        const timer = setTimeout(() => {
+          const list = archiveListRef.current;
+          const first = list !== null && list !== undefined ? list.firstElementChild : null;
+          if (first !== null && first !== undefined && typeof first.scrollIntoView === 'function') {
+            try {
+              first.scrollIntoView({ block: 'nearest' });
+            } catch {
+              /* A detached list cannot scroll. */
+            }
+          }
+        }, 60);
+        return () => clearTimeout(timer);
+      }, [ui.showArchive, archivedSignature]);
+
       // Save plumbing -------------------------------------------------------
       const clearTimer = () => {
         if (timerRef.current) {
@@ -1627,13 +2520,53 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         toastTimerRef.current = setTimeout(() => setToast(null), action === undefined || action === null ? 1800 : 5000);
       };
 
+      /**
+       * Grow a segment textarea without moving the surrounding list. Setting
+       * `height:auto` collapses the card for one layout pass, which clamps the
+       * list scrollTop and was the cause of auto-save jumping to the top.
+       */
+      const growTextarea = (element) => {
+        if (element === null || element === undefined) return;
+        const list = listRef.current;
+        const top = list !== null && list !== undefined && Number.isFinite(list.scrollTop)
+          ? list.scrollTop
+          : null;
+        autoGrow(element, settingsRef.current.maxSegmentHeight);
+        if (list !== null && list !== undefined && top !== null && Number.isFinite(list.scrollTop)
+          && list.scrollTop !== top) {
+          try {
+            list.scrollTop = top;
+          } catch {
+            /* A detached list cannot be scrolled. */
+          }
+        }
+      };
+
+      /** Boundary-preserving scroll snapshot for async saves and refreshes. */
+      const captureListScroll = () => {
+        const list = listRef.current;
+        return list !== null && list !== undefined && Number.isFinite(list.scrollTop) ? list.scrollTop : null;
+      };
+
+      const restoreListScroll = (top) => {
+        if (top === null || top === undefined) return;
+        const list = listRef.current;
+        if (list === null || list === undefined) return;
+        try {
+          if (list.scrollTop !== top) list.scrollTop = top;
+        } catch {
+          /* ignore */
+        }
+      };
+
       const resetGeometry = () => {
+        const defaults = settingsRef.current;
         setUi((previous) => clampUi({
           ...previous,
           x: null,
           y: null,
-          width: DEFAULT_W,
-          height: DEFAULT_H,
+          width: defaults.defaultWidth,
+          height: defaults.defaultHeight,
         }));
         showToast(t('uiReset'));
       };
@@ -1647,6 +2580,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
 
       const scheduleSave = () => {
         clearTimer();
+        if (settingsRef.current.saveMode === 'manual') {
+          setStatus('dirty');
+          return;
+        }
         timerRef.current = setTimeout(() => {
           timerRef.current = 0;
           saveNowRef.current?.();
@@ -1688,6 +2625,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       saveNowRef.current = saveNow;
 
       const commitSegments = (next, options = {}) => {
+        const before = segmentsRef.current;
         invalidateBatchUndo();
         segmentsRef.current = next;
         setSegments(next);
@@ -1696,6 +2634,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         dirtyRef.current = true;
         setStatus('dirty');
         setError('');
+        if (options.record !== false) recordHistory(before, next);
         scheduleSave();
       };
 
@@ -1713,6 +2652,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           setPreviewImage(null);
           setDeleteConfirm('');
           pendingScrollRef.current = null;
+          setTextSelectionState(null);
+          setLeaving(new Map());
+          resetHistory();
+          historyRootRef.current = '';
           setStatus('idle');
           setError('');
           return undefined;
@@ -1725,6 +2668,17 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         }
         clearTimer();
         const root = binding.cwd;
+        // Operation history belongs to one workspace note; switching away
+        // (or loading a new note) discards it rather than replaying snapshots
+        // from another document.
+        if (historyRootRef.current !== root) {
+          resetHistory();
+          historyRootRef.current = root;
+          syncCollapsed(new Set());
+        }
+        for (const timer of leaveTimersRef.current) clearTimeout(timer);
+        leaveTimersRef.current.clear();
+        setLeaving(new Map());
         rootRef.current = root;
         rootSessionRef.current = binding.id;
         let cancelled = false;
@@ -1738,6 +2692,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         setPreviewImage(null);
         setDeleteConfirm('');
         pendingScrollRef.current = null;
+        setTextSelectionState(null);
         setStatus('loading');
         setError('');
         const load = () => {
@@ -1755,6 +2710,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               setSelection(new Set());
               setSegmentUndo(new Map());
               setBatchUndoState(null);
+              resetHistory();
               versionRef.current = typeof data.mtimeMs === 'number' ? data.mtimeMs : null;
               setSavedAt(typeof data.mtimeMs === 'number' ? data.mtimeMs : null);
               dirtyRef.current = false;
@@ -1780,9 +2736,12 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         if (binding === null) {
           setCurrentWsId('');
           setWsCounts({});
+          setWsList([]);
+          setWsOpen(false);
           return undefined;
         }
         setCurrentWsId('');
+        setWsOpen(false);
         let disposed = false;
         const refresh = () => {
           const sessionId = binding.id;
@@ -1791,15 +2750,25 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             .then((data) => {
               if (disposed || bindingRef.current?.id !== sessionId) return;
               const next = {};
+              const list = [];
               let matched = '';
               const target = normalizedCwd(binding.cwd);
               for (const workspace of Array.isArray(data?.workspaces) ? data.workspaces : []) {
                 const id = typeof workspace?.id === 'string' ? workspace.id : '';
                 if (id === '') continue;
-                next[id] = Number.isFinite(workspace.count) ? Math.max(0, Math.floor(workspace.count)) : 0;
+                const count = Number.isFinite(workspace.count) ? Math.max(0, Math.floor(workspace.count)) : 0;
+                next[id] = count;
+                list.push({
+                  id,
+                  path: typeof workspace.path === 'string' ? workspace.path : '',
+                  title: typeof workspace.title === 'string' ? workspace.title : '',
+                  count,
+                  hasContent: workspace.hasContent === true,
+                });
                 if (matched === '' && normalizedCwd(workspace.path) === target) matched = id;
               }
               setWsCounts(next);
+              setWsList(list);
               if (matched !== '') setCurrentWsId(matched);
             })
             .catch(() => {});
@@ -1888,7 +2857,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         } catch {
           /* ignore */
         }
-        autoGrow(element);
+        growTextarea(element);
       }, [segments]);
 
       // Restore a captured scroll offset right after a refresh commits ------
@@ -1908,15 +2877,35 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       // Keyboard ------------------------------------------------------------
       useEffect(() => {
         const onKeyDown = (event) => {
-          const chord = event.ctrlKey || event.metaKey;
-          if (!chord || !event.shiftKey || event.altKey) return;
-          if (event.key === 'N' || event.key === 'n') {
+          if (event?.isComposing === true) return;
+          if (shortcutRecording) return;
+          const shortcuts = settingsRef.current.shortcuts;
+          const chordFor = (action) => parseShortcut(shortcuts[action]);
+          const hostOwns = (action) => hostHandledShortcuts.has(action);
+          if (!hostOwns('undo') && shortcutMatches(event, chordFor('undo'))) {
+            // Textareas and inputs keep their native undo/redo history.
+            if (isEditableTarget(event.target)) return;
             event.preventDefault();
-            setUi((previous) => clampUi({ ...previous, hidden: !previous.hidden }));
+            applyHistory('undo');
             return;
           }
-          if (!resetShortcutHandledByHost
-            && (event.key === 'R' || event.key === 'r' || event.code === 'KeyR')) {
+          if (!hostOwns('redo') && shortcutMatches(event, chordFor('redo'))) {
+            if (isEditableTarget(event.target)) return;
+            event.preventDefault();
+            applyHistory('redo');
+            return;
+          }
+          if (!hostOwns('toggle') && shortcutMatches(event, chordFor('toggle'))) {
+            event.preventDefault();
+            requestToggleVisibility();
+            return;
+          }
+          if (!hostOwns('save') && shortcutMatches(event, chordFor('save'))) {
+            event.preventDefault();
+            saveNowRef.current?.({ force: true });
+            return;
+          }
+          if (!hostOwns('reset') && shortcutMatches(event, chordFor('reset'))) {
             event.preventDefault();
             resetGeometry();
           }
@@ -1931,18 +2920,34 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         };
       }, []);
 
+      // Host shortcut / settings-tab entry points ---------------------------
+      useEffect(() => {
+        const visibility = () => setUi((previous) => clampUi({ ...previous, hidden: !previous.hidden }));
+        const history = (direction) => applyHistory(direction);
+        const save = () => saveNowRef.current?.({ force: true });
+        visibilityHandlers.add(visibility);
+        historyHandlers.add(history);
+        saveHandlers.add(save);
+        return () => {
+          visibilityHandlers.delete(visibility);
+          historyHandlers.delete(history);
+          saveHandlers.delete(save);
+        };
+      }, []);
+
       // Close the preview / delete confirmation with Escape ----------------
       useEffect(() => {
-        if (previewImage === null && deleteConfirm === '') return undefined;
+        if (previewImage === null && deleteConfirm === '' && wsOpen !== true) return undefined;
         const onKeyDown = (event) => {
           if (event.key !== 'Escape') return;
           event.preventDefault();
           setPreviewImage(null);
           setDeleteConfirm('');
+          setWsOpen(false);
         };
         window.addEventListener('keydown', onKeyDown, true);
         return () => window.removeEventListener('keydown', onKeyDown, true);
-      }, [previewImage, deleteConfirm]);
+      }, [previewImage, deleteConfirm, wsOpen]);
 
       // Flush on page hide / reload -----------------------------------------
       useEffect(() => {
@@ -2002,6 +3007,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               pruneSelectionFor(value);
               setSegmentUndo(new Map());
               setBatchUndoState(null);
+              resetHistory();
               versionRef.current = typeof data.mtimeMs === 'number' ? data.mtimeMs : null;
               setSavedAt(typeof data.mtimeMs === 'number' ? data.mtimeMs : null);
               setStatus('saved');
@@ -2028,6 +3034,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       // Segment mutations ---------------------------------------------------
       const updateSegmentText = (id, value) => {
         invalidateBatchUndo();
+        discardRedoHistory();
         const next = segmentsRef.current.map((segment) => (segment.id === id ? { ...segment, text: value } : segment));
         segmentsRef.current = next;
         setSegments(next);
@@ -2049,6 +3056,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const target = segmentsRef.current.find((segment) => segment.id === id);
         if (target === undefined || target.title === title) return;
         invalidateBatchUndo();
+        discardRedoHistory();
         const next = segmentsRef.current.map((segment) => (segment.id === id ? { ...segment, title } : segment));
         segmentsRef.current = next;
         setSegments(next);
@@ -2271,15 +3279,45 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         commitSegments(next, { focus: { id: nextSegment.id, caret: 0 } });
       };
 
+      /**
+       * Mark cards as leaving, then commit the structural change after the
+       * short exit animation. Removal used to be instant, which made archive
+       * and delete feel like the cards vanished while new cards animated in.
+       */
+      const scheduleLeave = (ids, kind, run) => {
+        const list = [...new Set(Array.isArray(ids) ? ids : [ids])]
+          .filter((id) => typeof id === 'string' && id !== '');
+        if (list.length === 0) return;
+        setLeaving((previous) => {
+          const next = new Map(previous);
+          for (const id of list) next.set(id, kind);
+          return next;
+        });
+        const timer = setTimeout(() => {
+          leaveTimersRef.current.delete(timer);
+          setLeaving((previous) => {
+            const next = new Map(previous);
+            for (const id of list) next.delete(id);
+            return next;
+          });
+          run();
+        }, 160);
+        leaveTimersRef.current.add(timer);
+      };
+
       const archiveSegment = (id) => {
         const current = segmentsRef.current.find((segment) => segment.id === id && segment.archived !== true);
         if (current === undefined) return;
-        const archivedAt = new Date().toISOString();
-        const next = segmentsRef.current.map((segment) =>
-          (segment.id === id ? { ...segment, archived: true, archivedAt } : segment));
-        setSelection(new Set([...selectedRef.current].filter((value) => value !== id)));
-        commitSegments(next);
-        showToast(t('archivedToast'));
+        scheduleLeave([id], 'archive', () => {
+          const latest = segmentsRef.current.find((segment) => segment.id === id && segment.archived !== true);
+          if (latest === undefined) return;
+          const archivedAt = new Date().toISOString();
+          const next = segmentsRef.current.map((segment) =>
+            (segment.id === id ? { ...segment, archived: true, archivedAt } : segment));
+          setSelection(new Set([...selectedRef.current].filter((value) => value !== id)));
+          commitSegments(next);
+          showToast(t('archivedToast'));
+        });
       };
 
       const archiveSelected = () => {
@@ -2289,12 +3327,20 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             .map((segment) => segment.id),
         );
         if (ids.size === 0) return;
-        const archivedAt = new Date().toISOString();
-        const next = segmentsRef.current.map((segment) =>
-          (ids.has(segment.id) ? { ...segment, archived: true, archivedAt } : segment));
-        setSelection(new Set());
-        commitSegments(next);
-        showToast(t('archivedCount', { n: ids.size }));
+        scheduleLeave([...ids], 'archive', () => {
+          const live = new Set(
+            segmentsRef.current
+              .filter((segment) => segment.archived !== true && ids.has(segment.id))
+              .map((segment) => segment.id),
+          );
+          if (live.size === 0) return;
+          const archivedAt = new Date().toISOString();
+          const next = segmentsRef.current.map((segment) =>
+            (live.has(segment.id) ? { ...segment, archived: true, archivedAt } : segment));
+          setSelection(new Set());
+          commitSegments(next);
+          showToast(t('archivedCount', { n: live.size }));
+        });
       };
 
       const restoreSegment = (id) => {
@@ -2329,11 +3375,15 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const deleteArchived = (id) => {
         const target = segmentsRef.current.find((segment) => segment.id === id && segment.archived === true);
         if (target === undefined) return;
-        undoRef.current = { snapshot: segmentsRef.current };
-        const next = segmentsRef.current.filter((segment) => segment.id !== id);
-        commitSegments(next);
-        scheduleImageCleanup(target.images);
-        showToast(t('deletedToast'), { label: t('undo'), onClick: undoLast });
+        scheduleLeave([id], 'delete', () => {
+          const latest = segmentsRef.current.find((segment) => segment.id === id && segment.archived === true);
+          if (latest === undefined) return;
+          undoRef.current = { snapshot: segmentsRef.current };
+          const next = segmentsRef.current.filter((segment) => segment.id !== id);
+          commitSegments(next);
+          scheduleImageCleanup(latest.images);
+          showToast(t('deletedToast'), { label: t('undo'), onClick: undoLast });
+        });
       };
 
       /** Irreversible delete for an active segment, gated by a confirmation. */
@@ -2352,20 +3402,55 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           updated.delete(id);
           return updated;
         });
-        const next = segmentsRef.current.filter((segment) => segment.id !== id);
-        commitSegments(next);
-        scheduleImageCleanup(target.images);
-        showToast(t('deletedToast'));
+        scheduleLeave([id], 'delete', () => {
+          const latest = segmentsRef.current.find((segment) => segment.id === id && segment.archived !== true);
+          if (latest === undefined) return;
+          const next = segmentsRef.current.filter((segment) => segment.id !== id);
+          // Irreversible delete: deliberately not part of plugin history.
+          commitSegments(next, { record: false });
+          discardHistoryFor(new Set([id]));
+          scheduleImageCleanup(latest.images);
+          showToast(t('deletedToast'));
+        });
+      };
+
+      /** Batch delete for the selected active segments. */
+      const deleteSelectedSegments = () => {
+        setDeleteConfirm('');
+        setPreviewImage(null);
+        const ids = new Set(
+          segmentsRef.current
+            .filter((segment) => segment.archived !== true && selectedRef.current.has(segment.id))
+            .map((segment) => segment.id),
+        );
+        if (ids.size === 0) return;
+        undoRef.current = null;
+        setToast(null);
+        scheduleLeave([...ids], 'delete', () => {
+          const removed = segmentsRef.current.filter((segment) => ids.has(segment.id));
+          if (removed.length === 0) return;
+          setSelection(new Set());
+          const next = segmentsRef.current.filter((segment) => !ids.has(segment.id));
+          // Irreversible batch delete: deliberately not part of plugin history.
+          commitSegments(next, { record: false });
+          discardHistoryFor(ids);
+          scheduleImageCleanup(removed.flatMap((segment) => (Array.isArray(segment.images) ? segment.images : [])));
+          showToast(t('deletedToast'));
+        });
       };
 
       const clearArchive = () => {
         const archived = segmentsRef.current.filter((segment) => segment.archived === true);
         if (archived.length === 0) return;
-        undoRef.current = { snapshot: segmentsRef.current };
-        const next = segmentsRef.current.filter((segment) => segment.archived !== true);
-        commitSegments(next);
-        scheduleImageCleanup(archived.flatMap((segment) => (Array.isArray(segment.images) ? segment.images : [])));
-        showToast(t('clearedArchive', { n: archived.length }), { label: t('undo'), onClick: undoLast });
+        scheduleLeave(archived.map((segment) => segment.id), 'delete', () => {
+          const current = segmentsRef.current.filter((segment) => segment.archived === true);
+          if (current.length === 0) return;
+          undoRef.current = { snapshot: segmentsRef.current };
+          const next = segmentsRef.current.filter((segment) => segment.archived !== true);
+          commitSegments(next);
+          scheduleImageCleanup(current.flatMap((segment) => (Array.isArray(segment.images) ? segment.images : [])));
+          showToast(t('clearedArchive', { n: current.length }), { label: t('undo'), onClick: undoLast });
+        });
       };
 
       // Merge / reorder -----------------------------------------------------
@@ -2485,9 +3570,9 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         setOptimizing(next);
       };
 
-      /** Cache key: the prompt depends on the workspace, title and card text. */
-      const optimizationCacheKey = (root, segment) =>
-        `${root}\u0000${segment.title ?? ''}\u0000${segment.text}`;
+      /** Cache key: the prompt depends on the workspace, title, preset and text. */
+      const optimizationCacheKey = (root, title, text, instruction) =>
+        `${root}\u0000${title ?? ''}\u0000${instruction ?? ''}\u0000${text}`;
 
       const rememberOptimization = (key, value) => {
         const cache = optimizeCacheRef.current;
@@ -2500,15 +3585,26 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         }
       };
 
-      const requestOptimization = async (segment) => {
+      /** Selection range inside a card, when it is still valid for that card. */
+      const selectionRangeFor = (segment) => {
+        const selection = textSelectionRef.current;
+        if (selection === null || selection === undefined || selection.id !== segment.id) return null;
+        const length = typeof segment.text === 'string' ? segment.text.length : 0;
+        const start = Math.max(0, Math.min(Number(selection.start) || 0, length));
+        const end = Math.max(start, Math.min(Number(selection.end) || start, length));
+        return end > start ? { start, end } : null;
+      };
+
+      const requestOptimization = async (text, title) => {
         const root = rootRef.current;
         const sessionId = rootSessionRef.current;
         if (root === '' || sessionId === '') throw new Error(t('optimizeUnavailable'));
-        if (segment.text.length > MAX_OPTIMIZE_CHARS) throw new Error(t('optimizeTooLong'));
-        const cacheKey = optimizationCacheKey(root, segment);
+        if (text.length > MAX_OPTIMIZE_CHARS) throw new Error(t('optimizeTooLong'));
+        const instruction = aiInstruction(settingsRef.current);
+        const cacheKey = optimizationCacheKey(root, title, text, instruction);
         const cached = optimizeCacheRef.current.get(cacheKey);
         if (typeof cached === 'string' && cached !== '') return cached;
-        const data = await optimizeNoteText(root, sessionId, segment.text, segment.title ?? '');
+        const data = await optimizeNoteText(root, sessionId, text, title, instruction);
         const value = typeof data.text === 'string' ? data.text.trim() : '';
         if (value === '') throw new Error(t('optimizeFailed'));
         rememberOptimization(cacheKey, value);
@@ -2518,25 +3614,50 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const optimizeSegment = async (id) => {
         if (optimizingRef.current.has(id)) return;
         const target = segmentsRef.current.find((segment) => segment.id === id && segment.archived !== true);
-        if (target === undefined || target.text.trim() === '') {
-          showToast(t('optimizeEmpty'));
+        if (target === undefined) return;
+        const selection = selectionRangeFor(target);
+        const source = selection === null
+          ? target.text
+          : target.text.slice(selection.start, selection.end);
+        if (source.trim() === '') {
+          showToast(selection === null ? t('optimizeEmpty') : t('optimizeSelectionEmpty'));
           return;
         }
         const original = target.text;
+        const title = selection === null ? (target.title ?? '') : '';
         markOptimizing(id, true);
         try {
-          const value = await requestOptimization(target);
+          const value = await requestOptimization(source, title);
           const current = segmentsRef.current.find((segment) => segment.id === id);
-          if (current === undefined || current.text !== original || value === original) return;
-          const next = segmentsRef.current.map((segment) =>
-            (segment.id === id ? { ...segment, text: value } : segment));
-          commitSegments(next);
+          if (current === undefined || current.text !== original) return;
+          const nextText = selection === null
+            ? value
+            : `${original.slice(0, selection.start)}${value}${original.slice(selection.end)}`;
+          if (nextText === original) return;
+          commitSegments(segmentsRef.current.map((segment) =>
+            (segment.id === id ? { ...segment, text: nextText } : segment)));
+          if (selection !== null) {
+            pendingSelectionRef.current = {
+              id,
+              start: selection.start,
+              end: selection.start + value.length,
+            };
+          } else if (textSelectionRef.current?.id === id) {
+            setTextSelectionState(null);
+          }
           setSegmentUndo((previous) => {
             const updated = new Map(previous);
-            updated.set(id, { before: original, after: value });
+            updated.set(id, {
+              before: original,
+              after: nextText,
+              selection: selection === null ? null : { ...selection },
+              afterSelection: selection === null
+                ? null
+                : { start: selection.start, end: selection.start + value.length },
+            });
             return updated;
           });
-          showToast(t('optimizedToast'));
+          showToast(selection === null ? t('optimizedToast') : t('selectionOptimized'));
         } catch (reason) {
           const message = String(reason?.message ?? reason);
           showToast(message === t('optimizeTooLong') || message === t('optimizeUnavailable')
@@ -2551,9 +3672,11 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const record = segmentUndo.get(id);
         const current = segmentsRef.current.find((segment) => segment.id === id);
         if (record !== undefined && current !== undefined && current.text === record.after) {
-          const next = segmentsRef.current.map((segment) =>
-            (segment.id === id ? { ...segment, text: record.before } : segment));
-          commitSegments(next);
+          commitSegments(segmentsRef.current.map((segment) =>
+            (segment.id === id ? { ...segment, text: record.before } : segment)));
+          if (record.selection !== null && record.selection !== undefined) {
+            pendingSelectionRef.current = { id, ...record.selection };
+          }
           setSegmentUndo((previous) => {
             if (!previous.has(id)) return previous;
             const updated = new Map(previous);
@@ -2583,40 +3706,70 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         }
         optimizeBatchRef.current = true;
         const snapshot = segmentsRef.current;
+        // Selections are captured up front: committing one card re-renders the
+        // list, but the other cards keep their own untouched text.
+        const plans = targets.map((segment) => ({ segment, selection: selectionRangeFor(segment) }));
         let done = 0;
         let changed = 0;
         let failed = 0;
-        setOptimizeBatch({ done, total: targets.length });
+        let lastSelection = null;
+        setOptimizeBatch({ done, total: plans.length });
         try {
-          for (const target of targets) {
+          for (const plan of plans) {
             const current = segmentsRef.current.find((segment) =>
-              segment.id === target.id && segment.archived !== true);
-            if (current !== undefined && current.text === target.text) {
-              markOptimizing(target.id, true);
+              segment.id === plan.segment.id && segment.archived !== true);
+            if (current !== undefined && current.text === plan.segment.text) {
+              markOptimizing(plan.segment.id, true);
               try {
-                const value = await requestOptimization(current);
-                if (value !== current.text) {
-                  const next = segmentsRef.current.map((segment) =>
-                    (segment.id === target.id && segment.text === current.text
-                      ? { ...segment, text: value }
-                      : segment));
-                  commitSegments(next);
-                  setSegmentUndo((previous) => {
-                    const updated = new Map(previous);
-                    updated.set(target.id, { before: current.text, after: value });
-                    return updated;
-                  });
-                  changed += 1;
+                const selection = plan.selection;
+                const source = selection === null
+                  ? current.text
+                  : current.text.slice(selection.start, selection.end);
+                if (source.trim() !== '') {
+                  const title = selection === null ? (current.title ?? '') : '';
+                  const value = await requestOptimization(source, title);
+                  if (segmentsRef.current.find((segment) => segment.id === current.id)?.text !== current.text) {
+                    /* edited while waiting: skip this card */
+                  } else {
+                    const nextText = selection === null
+                      ? value
+                      : `${current.text.slice(0, selection.start)}${value}${current.text.slice(selection.end)}`;
+                    if (nextText !== current.text) {
+                      commitSegments(segmentsRef.current.map((segment) =>
+                        (segment.id === current.id ? { ...segment, text: nextText } : segment)));
+                      setSegmentUndo((previous) => {
+                        const updated = new Map(previous);
+                        updated.set(current.id, {
+                          before: current.text,
+                          after: nextText,
+                          selection: selection === null ? null : { ...selection },
+                          afterSelection: selection === null
+                            ? null
+                            : { start: selection.start, end: selection.start + value.length },
+                        });
+                        return updated;
+                      });
+                      if (selection !== null) {
+                        lastSelection = {
+                          id: current.id,
+                          start: selection.start,
+                          end: selection.start + value.length,
+                        };
+                      }
+                      changed += 1;
+                    }
+                  }
                 }
               } catch {
                 failed += 1;
               } finally {
-                markOptimizing(target.id, false);
+                markOptimizing(plan.segment.id, false);
               }
             }
             done += 1;
-            setOptimizeBatch({ done, total: targets.length });
+            setOptimizeBatch({ done, total: plans.length });
           }
+          if (lastSelection !== null) pendingSelectionRef.current = lastSelection;
           if (changed > 0) {
             setBatchUndoState({ snapshot });
             showToast(t('optimizedCount', { n: changed }));
@@ -2650,6 +3803,61 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const active = segmentsRef.current.filter((segment) => segment.archived !== true);
         const allSelected = active.length > 0 && active.every((segment) => selectedRef.current.has(segment.id));
         setSelection(allSelected ? new Set() : new Set(active.map((segment) => segment.id)));
+      };
+
+      // Collapse / expand ---------------------------------------------------
+      const toggleCollapsed = (id) => {
+        const next = new Set(collapsedRef.current);
+        if (next.has(id)) next.delete(id);
+        else {
+          next.add(id);
+          if (textSelectionRef.current?.id === id) setTextSelectionState(null);
+        }
+        syncCollapsed(next);
+      };
+
+      const collapseAllSegments = () => {
+        const next = new Set(
+          segmentsRef.current
+            .filter((segment) => segment.archived !== true)
+            .map((segment) => segment.id),
+        );
+        syncCollapsed(next);
+      };
+
+      const expandAllSegments = () => {
+        syncCollapsed(new Set());
+      };
+
+      // Text selection inside a card (AI optimizes only that range) ---------
+      const captureTextSelection = (id) => {
+        const element = textareaRefs.current.get(id);
+        if (element === null || element === undefined) return;
+        const start = typeof element.selectionStart === 'number' ? element.selectionStart : 0;
+        const end = typeof element.selectionEnd === 'number' ? element.selectionEnd : start;
+        if (start === end) {
+          if (textSelectionRef.current?.id === id) setTextSelectionState(null);
+          return;
+        }
+        setTextSelectionState({ id, start: Math.min(start, end), end: Math.max(start, end) });
+      };
+
+      // Segment / selection copy -------------------------------------------
+      const copySegments = async (list) => {
+        const value = mergedText(list);
+        if (value === '') {
+          showToast(t('insertEmpty'));
+          return;
+        }
+        showToast((await copyText(value)) ? t('copied') : t('copyFailed'));
+      };
+
+      const copySelectedSegments = () => {
+        const active = segmentsRef.current.filter((segment) => segment.archived !== true);
+        const chosen = selectedRef.current.size > 0
+          ? active.filter((segment) => selectedRef.current.has(segment.id))
+          : active;
+        copySegments(chosen);
       };
 
       // Composer actions ----------------------------------------------------
@@ -2929,12 +4137,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const copyAll = async () => {
         // Copy only active work: archived segments were already sent or filed
         // away and must not leak back into a copy-all.
-        const value = mergedText(segmentsRef.current.filter((segment) => segment.archived !== true));
-        if (value === '') {
-          showToast(t('insertEmpty'));
-          return;
-        }
-        showToast((await copyText(value)) ? t('copied') : t('copyFailed'));
+        await copySegments(segmentsRef.current.filter((segment) => segment.archived !== true));
       };
 
       // UI actions ----------------------------------------------------------
@@ -2946,20 +4149,36 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         setUi((previous) => clampUi({ ...previous, hidden: !previous.hidden }));
       };
 
-      const toggleArchive = () => {
-        const open = ui.showArchive !== true;
-        setUi((previous) => ({ ...previous, showArchive: open }));
-        if (open) {
-          setTimeout(() => {
-            const list = listRef.current;
-            if (list !== null && list !== undefined) list.scrollTop = list.scrollHeight;
-          }, 260);
+      const manualSave = async () => {
+        await saveNowRef.current?.({ force: true });
+        showToast(t('savedToast'));
+      };
+
+      /** Persist the buffered note, then open a blank session in that workspace. */
+      const switchWorkspace = async (workspace) => {
+        setWsOpen(false);
+        if (workspace === null || workspace === undefined || workspace.id === currentWsId) return;
+        const uiWorkspace = ctx.get('uiWorkspace');
+        if (uiWorkspace === undefined || uiWorkspace === null || typeof uiWorkspace.startSession !== 'function') {
+          showToast(t('switchWorkspaceFailed'));
+          return;
         }
+        try {
+          if (dirtyRef.current) await saveNowRef.current?.({ force: true });
+          uiWorkspace.startSession(workspace.id, { clearPreviousDraft: true });
+          showToast(t('switchWorkspace'));
+        } catch {
+          showToast(t('switchWorkspaceFailed'));
+        }
+      };
+
+      const toggleArchive = () => {
+        setUi((previous) => ({ ...previous, showArchive: previous.showArchive !== true }));
       };
 
       const onSegmentChange = (event, id) => {
         const target = event.currentTarget ?? event.target;
-        autoGrow(target);
+        growTextarea(target);
         updateSegmentText(id, event.target?.value ?? '');
       };
 
@@ -3164,13 +4383,40 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       if (binding === null || present !== true) return null;
 
       const activeSegments = segments.filter((segment) => segment.archived !== true);
-      const archivedSegments = segments.filter((segment) => segment.archived === true);
+      // Newest archive first: archivedAt is the true ordering, the array order
+      // is only a fallback for notes archived by an older build.
+      const archivedSegments = segments
+        .filter((segment) => segment.archived === true)
+        .slice()
+        .sort((a, b) => {
+          const left = Date.parse(a.archivedAt ?? '') || 0;
+          const right = Date.parse(b.archivedAt ?? '') || 0;
+          return right - left;
+        });
       const selectedActive = activeSegments.filter((segment) => selected.has(segment.id));
       const selectedCount = selectedActive.length;
       const allSelected = activeSegments.length > 0 && selectedCount === activeSegments.length;
       const unsentCount = countUnsent(segments);
       const totalChars = segments.reduce((sum, segment) => sum + segment.text.length, 0);
-      const activeChars = activeSegments.reduce((sum, segment) => sum + segment.text.length, 0);
+      const activeHasContent = activeSegments.some((segment) =>
+        segment.text.trim() !== ''
+        || (Array.isArray(segment.images) && segment.images.length > 0));
+      const canUndo = historyRef.current.index > 0;
+      const canRedo = historyRef.current.index < historyRef.current.entries.length;
+      const currentPath = normalizedCwd(binding.cwd);
+      const workspaceItems = wsList.filter((workspace) =>
+        workspace.hasContent === true
+        || workspace.id === currentWsId
+        || normalizedCwd(workspace.path) === currentPath);
+      if (!workspaceItems.some((workspace) => normalizedCwd(workspace.path) === currentPath)) {
+        workspaceItems.unshift({
+          id: currentWsId,
+          path: binding.cwd,
+          title: workspaceName(binding.cwd),
+          count: unsentCount,
+          hasContent: true,
+        });
+      }
       const displayWidth = ui.width;
       const displayHeight = ui.minimized ? HEAD_H : ui.height;
       const fallbackX = Math.max(EDGE_GAP, ((typeof window !== 'undefined' && window.innerWidth) || 1280) - displayWidth - 24);
@@ -3191,19 +4437,74 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
 
       const archiveButtonTitle = ui.showArchive ? t('hideArchive') : t('showArchive');
 
+      const workspaceNode = h(
+        'div',
+        {
+          className: 'dsh-np-ws',
+          ref: (element) => {
+            wsWrapRef.current = element;
+          },
+          'data-open': wsOpen ? 'true' : 'false',
+        },
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-np-workspace',
+            title: t('workspaceMenu'),
+            'aria-label': t('workspaceMenu'),
+            'aria-haspopup': 'menu',
+            'aria-expanded': wsOpen ? 'true' : 'false',
+            onClick: () => setWsOpen((open) => !open),
+          },
+          h('span', { className: 'dsh-np-ws-name' }, workspaceName(binding.cwd)),
+          h(ChevronDownIcon, { size: 11 }),
+        ),
+        wsOpen
+          ? h(
+              'div',
+              { className: 'dsh-np-ws-menu', role: 'menu' },
+              workspaceItems.length === 0
+                ? h('div', { className: 'dsh-np-ws-empty' }, t('empty'))
+                : workspaceItems.map((workspace) => {
+                    const isCurrent = workspace.id !== ''
+                      ? workspace.id === currentWsId
+                      : normalizedCwd(workspace.path) === currentPath;
+                    return h(
+                      'button',
+                      {
+                        key: workspace.id === '' ? workspace.path : workspace.id,
+                        type: 'button',
+                        className: 'dsh-np-ws-item',
+                        role: 'menuitem',
+                        'data-current': isCurrent ? 'true' : 'false',
+                        title: workspace.path,
+                        onClick: () => switchWorkspace(workspace),
+                      },
+                      h('span', { className: 'dsh-np-ws-item-name' },
+                        workspace.title !== '' ? workspace.title : workspaceName(workspace.path)),
+                      workspace.count > 0
+                        ? h('span', { className: 'dsh-np-ws-item-count' }, String(workspace.count))
+                        : null,
+                    );
+                  }),
+            )
+          : null,
+      );
+
       const header = h(
         'div',
         { className: 'dsh-np-head', onPointerDown: onHeaderPointerDown },
         h('span', { className: 'dsh-np-dot', 'data-state': status }),
         h('span', { className: 'dsh-np-title' }, t('title')),
-        h('span', { className: 'dsh-np-workspace', title: binding.cwd }, workspaceName(binding.cwd)),
+        workspaceNode,
         h('span', { className: 'dsh-np-spacer' }),
         h(
           'button',
           {
             type: 'button',
             className: 'dsh-np-btn',
-            title: `${t('resetShortcut')} · Ctrl+Shift+R`,
+            title: `${t('resetShortcut')} · ${settings.shortcuts.reset}`,
             'aria-label': t('resetShortcut'),
             onClick: resetGeometry,
           },
@@ -3216,7 +4517,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             className: 'dsh-np-btn',
             title: t('copy'),
             'aria-label': t('copy'),
-            disabled: activeChars === 0,
+            disabled: activeHasContent !== true,
             onClick: copyAll,
           },
           h(CopyIcon, { size: 15 }),
@@ -3292,7 +4593,11 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         if (extra.danger === true) extraProps['data-danger'] = 'true';
         return h(
           'div',
-          { className: 'dsh-np-actiongroup', 'data-size': size },
+          {
+            className: 'dsh-np-actiongroup',
+            'data-size': size,
+            'data-expanded': settings.buttonGroups === false ? 'true' : 'false',
+          },
           h('button', primaryProps, primary.icon),
           h('button', extraProps, extra.icon ?? h(NewSessionIcon, { size: 14 })),
         );
@@ -3315,6 +4620,71 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             selectedCount > 0 ? t('selected', { n: selectedCount }) : t('selectHint')),
         ),
         h('span', { className: 'dsh-np-spacer' }),
+        settings.saveMode === 'manual'
+          ? h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-np-btn',
+                title: `${t('saveNowHint')} · ${settings.shortcuts.save}`,
+                'aria-label': t('saveNow'),
+                disabled: status === 'loading' || status === 'saving',
+                onClick: manualSave,
+              },
+              h(SaveIcon, { size: 14 }),
+            )
+          : null,
+        actionGroup({
+          size: 'bar',
+          primary: {
+            title: t('expandAll'),
+            onClick: expandAllSegments,
+            icon: h(ChevronsExpandIcon, { size: 14 }),
+          },
+          extra: {
+            title: t('collapseAll'),
+            onClick: collapseAllSegments,
+            icon: h(ChevronsCollapseIcon, { size: 14 }),
+          },
+        }),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-np-btn',
+            title: `${t('undo')} · ${settings.shortcuts.undo}`,
+            'aria-label': t('undo'),
+            disabled: !canUndo,
+            onClick: () => applyHistory('undo'),
+          },
+          h(UndoIcon, { size: 14 }),
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-np-btn',
+            title: `${t('redo')} · ${settings.shortcuts.redo}`,
+            'aria-label': t('redo'),
+            disabled: !canRedo,
+            onClick: () => applyHistory('redo'),
+          },
+          h(RedoIcon, { size: 14 }),
+        ),
+        selectedCount > 0
+          ? h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-np-btn',
+                title: t('copySelected', { n: selectedCount }),
+                'aria-label': t('copySelected', { n: selectedCount }),
+                disabled: activeHasContent !== true,
+                onClick: copySelectedSegments,
+              },
+              h(CopyIcon, { size: 14 }),
+            )
+          : null,
         actionGroup({
           size: 'bar',
           disabled: selectedCount === 0,
@@ -3326,6 +4696,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           extra: {
             title: selectedCount > 0 ? t('insertNewSelected', { n: selectedCount }) : t('insertNewSession'),
             onClick: () => insertNewSession(selectedActive),
+            icon: h(NewSessionIcon, { size: 14 }),
           },
         }),
         h(
@@ -3354,6 +4725,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           extra: {
             title: selectedCount > 0 ? t('sendNewSelected', { n: selectedCount }) : t('sendNewSession'),
             onClick: () => sendNewSession(selectedActive),
+            icon: h(NewSessionSendIcon, { size: 14 }),
           },
         }),
         h(
@@ -3392,18 +4764,21 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             ? h('span', { className: 'dsh-np-mini-spinner' })
             : batchUndo !== null ? h(UndoIcon, { size: 14 }) : h(SparkleIcon, { size: 14 }),
         ),
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'dsh-np-btn',
+        actionGroup({
+          size: 'bar',
+          disabled: selectedCount === 0,
+          primary: {
             title: selectedCount > 0 ? t('archiveSelected', { n: selectedCount }) : t('archive'),
-            'aria-label': t('archive'),
-            disabled: selectedCount === 0,
             onClick: archiveSelected,
+            icon: h(ArchiveIcon, { size: 14 }),
           },
-          h(ArchiveIcon, { size: 14 }),
-        ),
+          extra: {
+            title: selectedCount > 0 ? t('deleteSelected', { n: selectedCount }) : t('batchDelete'),
+            danger: true,
+            onClick: () => setDeleteConfirm('batch'),
+            icon: h(TrashIcon, { size: 14 }),
+          },
+        }),
         selectedCount > 0
           ? h(
               'button',
@@ -3457,7 +4832,6 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                 draggable: false,
               }),
             ),
-            h('span', { className: 'dsh-np-img-name', title: image.path }, image.name),
             options.readOnly === true
               ? null
               : h(
@@ -3475,6 +4849,40 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         );
       };
 
+      /** Stable ref callbacks so React does not re-measure on every render. */
+      const textareaRefSetter = (id) => {
+        let setter = textareaSettersRef.current.get(id);
+        if (setter === undefined) {
+          setter = (element) => {
+            if (element === null || element === undefined) {
+              textareaRefs.current.delete(id);
+              textareaSettersRef.current.delete(id);
+              return;
+            }
+            textareaRefs.current.set(id, element);
+            growTextarea(element);
+          };
+          textareaSettersRef.current.set(id, setter);
+        }
+        return setter;
+      };
+
+      const fileInputRefSetter = (id) => {
+        let setter = fileInputSettersRef.current.get(id);
+        if (setter === undefined) {
+          setter = (element) => {
+            if (element === null || element === undefined) {
+              fileInputRefs.current.delete(id);
+              fileInputSettersRef.current.delete(id);
+              return;
+            }
+            fileInputRefs.current.set(id, element);
+          };
+          fileInputSettersRef.current.set(id, setter);
+        }
+        return setter;
+      };
+
       const activeCards = activeSegments.map((segment, index) => {
         const images = Array.isArray(segment.images) ? segment.images : [];
         const empty = segment.text.trim() === '' && images.length === 0;
@@ -3484,9 +4892,21 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const canUndoOptimize = undoRecord !== undefined && undoRecord.after === segment.text;
         const optimizingNow = optimizing.has(segment.id);
         const aiBusy = optimizingNow || optimizeBatch !== null;
+        const folded = collapsed.has(segment.id);
+        const selection = textSelection !== null && textSelection.id === segment.id
+          && segment.text.slice(textSelection.start, textSelection.end).trim() !== ''
+          ? textSelection
+          : null;
+        const optimizedRange = undoRecord?.afterSelection ?? null;
+        const selectionIsOptimizedRange = selection !== null && optimizedRange !== null
+          && selection.start === optimizedRange.start
+          && selection.end === optimizedRange.end;
+        const showUndoAi = canUndoOptimize && (selection === null || selectionIsOptimizedRange);
         const aiTitle = aiBusy
           ? t('optimizing')
-          : canUndoOptimize ? t('undoOptimize') : t('optimizeSegment');
+          : showUndoAi
+            ? t('undoOptimize')
+            : selection !== null ? t('optimizeSelection') : t('optimizeSegment');
         return h(
           'article',
           {
@@ -3495,6 +4915,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             'data-seg-id': segment.id,
             'data-archived': 'false',
             'data-selected': selected.has(segment.id) ? 'true' : 'false',
+            'data-collapsed': folded ? 'true' : 'false',
+            'data-leaving': leaving.has(segment.id) ? 'true' : 'false',
             'data-reorder-drag': reorderDrag === segment.id ? 'true' : 'false',
             'data-drop-before': reorderOver?.id === segment.id && reorderOver?.after === false ? 'true' : 'false',
             'data-drop-after': reorderOver?.id === segment.id && reorderOver?.after === true ? 'true' : 'false',
@@ -3506,13 +4928,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           },
           h('input', {
             key: 'file-input',
-            ref: (element) => {
-              if (element === null || element === undefined) {
-                fileInputRefs.current.delete(segment.id);
-                return;
-              }
-              fileInputRefs.current.set(segment.id, element);
-            },
+            ref: fileInputRefSetter(segment.id),
             className: 'dsh-np-file',
             type: 'file',
             accept: 'image/png,image/jpeg,image/webp,image/gif',
@@ -3525,14 +4941,16 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             'div',
             { className: 'dsh-np-seg-head' },
             h(
-              'label',
-              { className: 'dsh-np-check', title: t('selectSegment') },
-              h('input', {
-                type: 'checkbox',
-                checked: selected.has(segment.id),
-                'aria-label': t('selectSegment'),
-                onChange: () => toggleSelected(segment.id),
-              }),
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-np-fold',
+                title: folded ? t('expandSegment') : t('collapseSegment'),
+                'aria-label': folded ? t('expandSegment') : t('collapseSegment'),
+                'aria-expanded': folded ? 'false' : 'true',
+                onClick: () => toggleCollapsed(segment.id),
+              },
+              h(folded ? ChevronRightIcon : ChevronDownIcon, { size: 13 }),
             ),
             h(
               'button',
@@ -3575,7 +4993,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                     }
                   },
                   onBlur: () => {
-                    if (dirtyRef.current) saveNowRef.current?.();
+                    if (settingsRef.current.saveMode !== 'manual' && dirtyRef.current) saveNowRef.current?.();
                     if ((segment.title ?? '') === '') setTitleEditing('');
                   },
                 })
@@ -3600,6 +5018,18 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               },
               h(ImageIcon, { size: 14 }),
             ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-np-segbtn',
+                title: t('copySegment'),
+                'aria-label': t('copySegment'),
+                disabled: empty,
+                onClick: () => copySegments([segment]),
+              },
+              h(CopyIcon, { size: 14 }),
+            ),
             actionGroup({
               size: 'card',
               disabled: empty,
@@ -3611,6 +5041,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               extra: {
                 title: t('insertNewSession'),
                 onClick: () => insertNewSession([segment]),
+                icon: h(NewSessionIcon, { size: 14 }),
               },
             }),
             h(
@@ -3636,6 +5067,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               extra: {
                 title: t('sendNewSession'),
                 onClick: () => sendNewSession([segment]),
+                icon: h(NewSessionSendIcon, { size: 14 }),
               },
             }),
             h(
@@ -3644,16 +5076,17 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                 type: 'button',
                 className: 'dsh-np-segbtn',
                 'data-ai': 'true',
+                'data-selection': selection === null ? 'false' : 'true',
                 title: aiTitle,
                 'aria-label': aiTitle,
-                disabled: aiBusy || (canUndoOptimize ? false : empty),
-                onClick: canUndoOptimize
+                disabled: aiBusy || (showUndoAi ? false : segment.text.trim() === ''),
+                onClick: showUndoAi
                   ? () => undoOptimizeSegment(segment.id)
                   : () => optimizeSegment(segment.id),
               },
               optimizingNow
                 ? h('span', { className: 'dsh-np-mini-spinner' })
-                : canUndoOptimize ? h(UndoIcon, { size: 14 }) : h(SparkleIcon, { size: 14 }),
+                : showUndoAi ? h(UndoIcon, { size: 14 }) : h(SparkleIcon, { size: 14 }),
             ),
             actionGroup({
               size: 'card',
@@ -3673,40 +5106,42 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               },
             }),
           ),
-          h(
-            'div',
-            {
-              className: 'dsh-np-editor',
-              'data-drag': dragSegment === segment.id ? 'true' : 'false',
-              onPaste: (event) => onSegmentPaste(event, segment.id),
-              onDrop: (event) => onSegmentDrop(event, segment.id),
-              onDragOver: (event) => onSegmentDragOver(event, segment.id),
-              onDragLeave: (event) => onSegmentDragLeave(event, segment.id),
-            },
-            renderMedia(segment, { pending: (uploading[segment.id] ?? 0) > 0 }),
-            h('textarea', {
-              ref: (element) => {
-                if (element === null || element === undefined) {
-                  textareaRefs.current.delete(segment.id);
-                  return;
-                }
-                textareaRefs.current.set(segment.id, element);
-                autoGrow(element);
-              },
-              className: 'dsh-np-seg-text',
-              rows: 1,
-              value: segment.text,
-              placeholder: index === activeSegments.length - 1 ? t('placeholder') : t('segmentPlaceholder'),
-              spellCheck: false,
-              maxLength: MAX_SEGMENT_CHARS,
-              'aria-label': t('editor'),
-              onChange: (event) => onSegmentChange(event, segment.id),
-              onKeyDown: (event) => onSegmentKeyDown(event, segment.id),
-              onBlur: () => {
-                if (dirtyRef.current) saveNowRef.current?.();
-              },
-            }),
-          ),
+          folded
+            ? h(
+                'div',
+                { className: 'dsh-np-seg-preview' },
+                segment.text.trim() === ''
+                  ? (images.length > 0 ? t('images', { n: images.length }) : t('emptySegment'))
+                  : segment.text,
+              )
+            : h(
+                'div',
+                {
+                  className: 'dsh-np-editor',
+                  'data-drag': dragSegment === segment.id ? 'true' : 'false',
+                  onPaste: (event) => onSegmentPaste(event, segment.id),
+                  onDrop: (event) => onSegmentDrop(event, segment.id),
+                  onDragOver: (event) => onSegmentDragOver(event, segment.id),
+                  onDragLeave: (event) => onSegmentDragLeave(event, segment.id),
+                },
+                renderMedia(segment, { pending: (uploading[segment.id] ?? 0) > 0 }),
+                h('textarea', {
+                  ref: textareaRefSetter(segment.id),
+                  className: 'dsh-np-seg-text',
+                  rows: 1,
+                  value: segment.text,
+                  placeholder: index === activeSegments.length - 1 ? t('placeholder') : t('segmentPlaceholder'),
+                  spellCheck: false,
+                  maxLength: MAX_SEGMENT_CHARS,
+                  'aria-label': t('editor'),
+                  onSelect: () => captureTextSelection(segment.id),
+                  onChange: (event) => onSegmentChange(event, segment.id),
+                  onKeyDown: (event) => onSegmentKeyDown(event, segment.id),
+                  onBlur: () => {
+                    if (settingsRef.current.saveMode !== 'manual' && dirtyRef.current) saveNowRef.current?.();
+                  },
+                }),
+              ),
         );
       });
 
@@ -3765,7 +5200,12 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                 ? h('div', { className: 'dsh-np-empty-small' }, t('archiveEmpty'))
                 : h(
                     'div',
-                    { className: 'dsh-np-archive-list' },
+                    {
+                      className: 'dsh-np-archive-list',
+                      ref: (element) => {
+                        archiveListRef.current = element;
+                      },
+                    },
                     archivedSegments.map((segment) => h(
                       'article',
                       {
@@ -3773,6 +5213,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                         className: 'dsh-np-seg',
                         'data-seg-id': segment.id,
                         'data-archived': 'true',
+                        'data-leaving': leaving.has(segment.id) ? 'true' : 'false',
                       },
                       h(
                         'div',
@@ -3782,6 +5223,19 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                           ? h('span', { className: 'dsh-np-seg-title' }, segment.title)
                           : null,
                         h('span', { className: 'dsh-np-spacer' }),
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'dsh-np-segbtn',
+                            title: t('copySegment'),
+                            'aria-label': t('copySegment'),
+                            disabled: segment.text.trim() === ''
+                              && !(Array.isArray(segment.images) && segment.images.length > 0),
+                            onClick: () => copySegments([segment]),
+                          },
+                          h(CopyIcon, { size: 14 }),
+                        ),
                         h(
                           'button',
                           {
@@ -3970,10 +5424,12 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             h('div', { className: 'dsh-np-preview-name' }, previewImage.name),
           );
 
-      const deleteTarget = deleteConfirm === ''
+      const batchDelete = deleteConfirm === 'batch' && selectedCount > 0;
+      const deleteTarget = deleteConfirm === '' || batchDelete
         ? undefined
         : segments.find((segment) => segment.id === deleteConfirm && segment.archived !== true);
-      const confirmNode = deleteTarget === undefined
+      const confirmCount = batchDelete ? selectedCount : 1;
+      const confirmNode = (!batchDelete && deleteTarget === undefined)
         ? null
         : h(
             'div',
@@ -3981,7 +5437,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               className: 'dsh-np-confirm',
               role: 'alertdialog',
               'aria-modal': 'true',
-              'aria-label': t('deleteConfirmTitle'),
+              'aria-label': batchDelete ? t('batchDeleteTitle', { n: confirmCount }) : t('deleteConfirmTitle'),
               onClick: () => setDeleteConfirm(''),
             },
             h(
@@ -3990,9 +5446,12 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                 className: 'dsh-np-confirm-card',
                 onClick: (event) => event?.stopPropagation?.(),
               },
-              h('div', { className: 'dsh-np-confirm-title' }, t('deleteConfirmTitle')),
-              h('div', { className: 'dsh-np-confirm-body' }, t('deleteConfirmBody')),
-              h('div', { className: 'dsh-np-confirm-hint' }, t('deleteConfirmHint')),
+              h('div', { className: 'dsh-np-confirm-title' },
+                batchDelete ? t('batchDeleteTitle', { n: confirmCount }) : t('deleteConfirmTitle')),
+              h('div', { className: 'dsh-np-confirm-body' },
+                batchDelete ? t('batchDeleteBody') : t('deleteConfirmBody')),
+              h('div', { className: 'dsh-np-confirm-hint' },
+                batchDelete ? t('batchDeleteHint') : t('deleteConfirmHint')),
               h(
                 'div',
                 { className: 'dsh-np-confirm-actions' },
@@ -4011,7 +5470,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                     type: 'button',
                     className: 'dsh-np-confirm-btn',
                     'data-danger': 'true',
-                    onClick: () => deleteActiveSegment(deleteTarget.id),
+                    onClick: () => {
+                      if (batchDelete) deleteSelectedSegments();
+                      else if (deleteTarget !== undefined) deleteActiveSegment(deleteTarget.id);
+                    },
                   },
                   t('deleteConfirmOk'),
                 ),
@@ -4029,12 +5491,19 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           'data-hidden': ui.hidden ? 'true' : 'false',
           'data-resizing': resizing ? 'true' : 'false',
           'data-state': status,
+          'data-np-theme': THEME_IDS.includes(settings.theme) ? settings.theme : 'host',
+          'data-np-style': settings.uiStyle === 'flat' ? 'flat' : 'glass',
           'aria-hidden': ui.hidden ? 'true' : undefined,
           style: {
             left: `${left}px`,
             top: `${top}px`,
             width: `${displayWidth}px`,
             height: `${displayHeight}px`,
+            '--np-seg-max': `${settings.maxSegmentHeight}px`,
+            '--np-font-size': `${settings.fontSize}px`,
+            '--np-blur': `${settings.blur}px`,
+            '--np-group-delay': `${settings.groupDelay}ms`,
+            '--np-font': FONT_STACKS[settings.font] ?? FONT_STACK,
           },
           role: 'complementary',
           'aria-label': t('title'),
@@ -4055,8 +5524,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           'data-visible': ui.hidden ? 'true' : 'false',
           'aria-hidden': ui.hidden ? undefined : 'true',
           tabIndex: ui.hidden ? undefined : -1,
-          title: t('show'),
-          'aria-label': t('show'),
+          title: t('show', { shortcut: settings.shortcuts.toggle }),
+          'aria-label': t('show', { shortcut: settings.shortcuts.toggle }),
           onClick: toggleHidden,
         },
         h(NotepadIcon, { size: 16 }),
@@ -4069,6 +5538,432 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       );
 
       return [card, restore];
+    }
+
+    // ------------------------------------------------------------------
+    // Settings tab
+    // ------------------------------------------------------------------
+
+    /** Custom dropdown used by the settings tab (native selects cannot be themed). */
+    function SettingsDropdown({ value, options, onChange, disabled = false, ariaLabel }) {
+      const [open, setOpen] = useState(false);
+      const wrapRef = useRef(null);
+      useEffect(() => {
+        if (!open || typeof document === 'undefined') return undefined;
+        const close = (event) => {
+          const wrap = wrapRef.current;
+          if (wrap !== null && wrap !== undefined && typeof wrap.contains === 'function'
+            && event?.target !== undefined && wrap.contains(event.target)) return;
+          setOpen(false);
+        };
+        const onKeyDown = (event) => {
+          if (event?.key !== 'Escape') return;
+          event.preventDefault?.();
+          setOpen(false);
+        };
+        document.addEventListener('pointerdown', close, true);
+        document.addEventListener('keydown', onKeyDown, true);
+        return () => {
+          document.removeEventListener('pointerdown', close, true);
+          document.removeEventListener('keydown', onKeyDown, true);
+        };
+      }, [open]);
+      const current = options.find((option) => option.value === value) ?? options[0];
+      return h(
+        'div',
+        { className: 'dsh-np-drop', ref: (element) => { wrapRef.current = element; } },
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-np-drop-btn',
+            disabled,
+            'aria-haspopup': 'listbox',
+            'aria-expanded': open ? 'true' : 'false',
+            'aria-label': ariaLabel,
+            onClick: () => setOpen((previous) => !previous),
+          },
+          h('span', { className: 'dsh-np-drop-value' }, current?.label ?? ''),
+          h(ChevronDownIcon, { size: 13 }),
+        ),
+        open
+          ? h(
+              'div',
+              { className: 'dsh-np-drop-menu', role: 'listbox' },
+              options.map((option) => h(
+                'button',
+                {
+                  key: option.value,
+                  type: 'button',
+                  className: 'dsh-np-drop-item',
+                  role: 'option',
+                  'data-active': option.value === value ? 'true' : 'false',
+                  'aria-selected': option.value === value ? 'true' : 'false',
+                  title: option.description,
+                  onClick: () => {
+                    setOpen(false);
+                    onChange(option.value);
+                  },
+                },
+                h('span', { className: 'dsh-np-drop-value' }, option.label),
+                option.value === value ? h('span', { className: 'dsh-np-drop-check' }, '✓') : null,
+              )),
+            )
+          : null,
+      );
+    }
+
+    /** Track + knob switch, matching the host settings switch tokens. */
+    function SettingsToggle({ checked, onChange, label, disabled = false }) {
+      return h(
+        'button',
+        {
+          type: 'button',
+          className: `dsh-np-toggle${checked ? ' on' : ''}`,
+          role: 'switch',
+          'aria-checked': checked ? 'true' : 'false',
+          disabled,
+          onClick: () => onChange(!checked),
+        },
+        h('span', { className: 'dsh-np-toggle-track' }, h('span', { className: 'dsh-np-toggle-knob' })),
+        label === undefined ? null : h('span', { className: 'dsh-np-toggle-label' }, label),
+      );
+    }
+
+    /** Read-only chord field that binds whatever the user presses next. */
+    function SettingsKeyField({ value, onCommit, ariaLabel }) {
+      const [recording, setRecording] = useState(false);
+      useEffect(() => () => {
+        shortcutRecording = false;
+      }, []);
+      return h('input', {
+        type: 'text',
+        className: 'dsh-np-key',
+        readOnly: true,
+        value,
+        'data-recording': recording ? 'true' : 'false',
+        'aria-label': ariaLabel,
+        title: ariaLabel,
+        onFocus: () => {
+          shortcutRecording = true;
+          setRecording(true);
+        },
+        onBlur: () => {
+          shortcutRecording = false;
+          setRecording(false);
+        },
+        onKeyDown: (event) => {
+          if (event.key === 'Escape' || event.key === 'Tab') {
+            shortcutRecording = false;
+            setRecording(false);
+            try {
+              event.currentTarget?.blur?.();
+            } catch {
+              /* ignore */
+            }
+            return;
+          }
+          const label = shortcutLabelForEvent(event);
+          if (label === '' || parseShortcut(label) === null) return;
+          event.preventDefault?.();
+          onCommit(label);
+          shortcutRecording = false;
+          setRecording(false);
+          try {
+            event.currentTarget?.blur?.();
+          } catch {
+            /* ignore */
+          }
+        },
+      });
+    }
+
+    /** Number input with a local draft so typing does not get clamped per key. */
+    function SettingsNumber({ value, min, max, onCommit, ariaLabel, disabled = false }) {
+      const [draft, setDraft] = useState(String(value));
+      useEffect(() => {
+        setDraft(String(value));
+      }, [value]);
+      const commit = () => {
+        const number = Number(draft);
+        if (!Number.isFinite(number)) {
+          setDraft(String(value));
+          return;
+        }
+        const next = clampInt(number, min, max, value);
+        setDraft(String(next));
+        if (next !== value) onCommit(next);
+      };
+      return h('input', {
+        type: 'number',
+        className: 'dsh-np-set-number',
+        value: draft,
+        min,
+        max,
+        step: 1,
+        disabled,
+        'aria-label': ariaLabel,
+        onChange: (event) => setDraft(String(event.target?.value ?? '')),
+        onBlur: commit,
+        onKeyDown: (event) => {
+          if (event.key !== 'Enter') return;
+          event.preventDefault?.();
+          commit();
+          try {
+            event.currentTarget?.blur?.();
+          } catch {
+            /* ignore */
+          }
+        },
+      });
+    }
+
+    function NotepadSettings({ t }) {
+      const [settings, setSettings] = useState(readSettings);
+      const [notice, setNotice] = useState('');
+      const noticeTimerRef = useRef(0);
+      useEffect(() => subscribeSettings((next) => setSettings(next)), []);
+      useEffect(() => () => {
+        if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+      }, []);
+      const commit = (patch) => {
+        const next = writeSettings(patch);
+        setSettings(next);
+        return next;
+      };
+      const announce = (message) => {
+        setNotice(message);
+        if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+        noticeTimerRef.current = setTimeout(() => setNotice(''), 2200);
+      };
+
+      const themeOptions = [
+        { value: 'host', label: t('themeHost') },
+        { value: 'ocean', label: t('themeOcean') },
+        { value: 'violet', label: t('themeViolet') },
+        { value: 'emerald', label: t('themeEmerald') },
+        { value: 'amber', label: t('themeAmber') },
+        { value: 'rose', label: t('themeRose') },
+      ];
+      const styleOptions = [
+        { value: 'flat', label: t('uiFlat') },
+        { value: 'glass', label: t('uiGlass') },
+      ];
+      const fontOptions = [
+        { value: 'system', label: t('fontSystem') },
+        { value: 'sans', label: t('fontSans') },
+        { value: 'serif', label: t('fontSerif') },
+        { value: 'mono', label: t('fontMono') },
+      ];
+      const presetOptions = [
+        { value: 'balanced', label: t('aiPresetBalanced') },
+        { value: 'concise', label: t('aiPresetConcise') },
+        { value: 'professional', label: t('aiPresetProfessional') },
+        { value: 'outline', label: t('aiPresetOutline') },
+        { value: 'custom', label: t('aiPresetCustom') },
+      ];
+
+      const field = (label, hint, control, wide = false) => h(
+        'div',
+        { className: 'dsh-np-set-field', 'data-wide': wide ? 'true' : 'false' },
+        h('span', { className: 'dsh-np-set-label' }, label),
+        control,
+        hint === '' ? null : h('span', { className: 'dsh-np-set-hint' }, hint),
+      );
+
+      const numberInput = ({ onChange, ...rest }) => h(SettingsNumber, { ...rest, onCommit: onChange });
+
+      const card = (title, key, fields, note) => h(
+        'section',
+        { className: 'dsh-np-set-card', 'data-key': key },
+        h('div', { className: 'dsh-np-set-card-head' }, title),
+        h('div', { className: 'dsh-np-set-card-body' }, fields),
+        note === undefined ? null : h('div', { className: 'dsh-np-set-note' }, note),
+      );
+
+      const shortcutRows = [
+        ['toggle', 'shortcutToggle'],
+        ['reset', 'shortcutReset'],
+        ['undo', 'shortcutUndo'],
+        ['redo', 'shortcutRedo'],
+        ['save', 'shortcutSave'],
+      ].map(([action, labelKey]) => h(
+        'div',
+        { className: 'dsh-np-set-field', key: action },
+        h('span', { className: 'dsh-np-set-label' }, t(labelKey)),
+        h(SettingsKeyField, {
+          value: settings.shortcuts[action],
+          ariaLabel: t(labelKey),
+          onCommit: (chord) => {
+            const duplicate = SHORTCUT_ACTIONS.some((other) =>
+              other !== action && settings.shortcuts[other] === chord);
+            if (duplicate) {
+              announce(t('shortcutHint'));
+              return;
+            }
+            commit({ shortcuts: { ...settings.shortcuts, [action]: chord } });
+          },
+        }),
+      ));
+
+      return h(
+        'div',
+        { className: 'dsh-np-set' },
+        h(
+          'div',
+          { className: 'dsh-np-set-head' },
+          h('div', { className: 'dsh-np-set-title' }, t('settingsTitle')),
+          h('div', { className: 'dsh-np-set-intro' }, t('settingsIntro')),
+        ),
+        h(
+          'div',
+          { className: 'dsh-np-set-grid' },
+          card(t('appearance'), 'appearance', [
+            field(t('theme'), '', h(SettingsDropdown, {
+              value: settings.theme,
+              options: themeOptions,
+              ariaLabel: t('theme'),
+              onChange: (value) => commit({ theme: value }),
+            })),
+            field(t('uiStyle'), '', h(SettingsDropdown, {
+              value: settings.uiStyle,
+              options: styleOptions,
+              ariaLabel: t('uiStyle'),
+              onChange: (value) => commit({ uiStyle: value }),
+            })),
+            field(t('blur'), t('blurHint'), numberInput({
+              value: settings.blur,
+              min: 0,
+              max: 40,
+              ariaLabel: t('blur'),
+              disabled: settings.uiStyle !== 'glass',
+              onChange: (value) => commit({ blur: value }),
+            })),
+            field(t('font'), '', h(SettingsDropdown, {
+              value: settings.font,
+              options: fontOptions,
+              ariaLabel: t('font'),
+              onChange: (value) => commit({ font: value }),
+            })),
+            field(t('fontSize'), '', numberInput({
+              value: settings.fontSize,
+              min: 11,
+              max: 20,
+              ariaLabel: t('fontSize'),
+              onChange: (value) => commit({ fontSize: value }),
+            })),
+            field(t('segmentMaxHeight'), t('segmentMaxHeightHint'), numberInput({
+              value: settings.maxSegmentHeight,
+              min: 80,
+              max: 800,
+              ariaLabel: t('segmentMaxHeight'),
+              onChange: (value) => commit({ maxSegmentHeight: value }),
+            })),
+          ]),
+          card(t('saveSection'), 'save', [
+            field(t('saveMode'), t('autoSaveHint'), h(SettingsToggle, {
+              checked: settings.saveMode === 'auto',
+              label: settings.saveMode === 'auto' ? t('autoSave') : t('manualSave'),
+              onChange: (checked) => commit({ saveMode: checked ? 'auto' : 'manual' }),
+            })),
+            field(t('undoLimit'), t('undoLimitHint', { n: settings.undoLimit }), numberInput({
+              value: settings.undoLimit,
+              min: 5,
+              max: 200,
+              ariaLabel: t('undoLimit'),
+              onChange: (value) => commit({ undoLimit: value }),
+            })),
+          ]),
+          card(t('groupsSection'), 'groups', [
+            field(t('buttonGroups'), t('buttonGroupsHint'), h(SettingsToggle, {
+              checked: settings.buttonGroups,
+              onChange: (checked) => commit({ buttonGroups: checked }),
+            })),
+            settings.buttonGroups
+              ? field(t('groupDelay'), t('groupDelayHint'), numberInput({
+                  value: settings.groupDelay,
+                  min: 0,
+                  max: 1000,
+                  ariaLabel: t('groupDelay'),
+                  onChange: (value) => commit({ groupDelay: value }),
+                }))
+              : null,
+          ].filter(Boolean)),
+          card(t('shortcutsSection'), 'shortcuts', [
+            ...shortcutRows,
+            h(
+              'div',
+              { className: 'dsh-np-set-actions', key: 'shortcut-reset', 'data-wide': 'true' },
+              h('button', {
+                type: 'button',
+                className: 'dsh-np-set-btn',
+                onClick: () => {
+                  commit({ shortcuts: { ...SHORTCUT_DEFAULTS } });
+                  announce(t('shortcutResetDefaults'));
+                },
+              }, t('shortcutResetDefaults')),
+            ),
+          ], t('shortcutHint')),
+          card(t('aiSection'), 'ai', [
+            field(t('aiPreset'), '', h(SettingsDropdown, {
+              value: settings.aiPreset,
+              options: presetOptions,
+              ariaLabel: t('aiPreset'),
+              onChange: (value) => commit({ aiPreset: value }),
+            })),
+            field(t('aiCustomPrompt'), t('aiCustomHint'), h('textarea', {
+              className: 'dsh-np-set-textarea',
+              value: settings.aiCustom,
+              maxLength: 4000,
+              spellCheck: false,
+              disabled: settings.aiPreset !== 'custom',
+              'aria-label': t('aiCustomPrompt'),
+              onChange: (event) => commit({ aiCustom: String(event.target?.value ?? '') }),
+            }), true),
+          ], t('aiPromptHint')),
+          card(t('windowSection'), 'window', [
+            field(t('defaultWidth'), '', numberInput({
+              value: settings.defaultWidth,
+              min: MIN_W,
+              max: 1600,
+              ariaLabel: t('defaultWidth'),
+              onChange: (value) => commit({ defaultWidth: value }),
+            })),
+            field(t('defaultHeight'), '', numberInput({
+              value: settings.defaultHeight,
+              min: MIN_H,
+              max: 1200,
+              ariaLabel: t('defaultHeight'),
+              onChange: (value) => commit({ defaultHeight: value }),
+            })),
+            h(
+              'div',
+              { className: 'dsh-np-set-actions', key: 'window-actions', 'data-wide': 'true' },
+              h('button', {
+                type: 'button',
+                className: 'dsh-np-set-btn',
+                onClick: () => {
+                  commit({ defaultWidth: DEFAULT_W, defaultHeight: DEFAULT_H });
+                  announce(t('resetDefaultSize'));
+                },
+              }, t('resetDefaultSize')),
+              h('button', {
+                type: 'button',
+                className: 'dsh-np-set-btn',
+                'data-primary': 'true',
+                onClick: () => {
+                  resetWindowGeometry();
+                  announce(t('uiReset'));
+                },
+              }, t('applyResetGeometry')),
+            ),
+          ], t('geometryHint')),
+        ),
+        notice === ''
+          ? null
+          : h('div', { className: 'dsh-np-set-note', role: 'status' }, notice),
+        h('div', { className: 'dsh-np-set-note' }, t('saveSettingsNote')),
+      );
     }
 
     // ------------------------------------------------------------------
@@ -4108,40 +6003,131 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         };
       }, 'dsh-notepad: dictionaries');
 
-      // Register the geometry-reset chord with DSH's shortcut service so it
+      // Register every configurable chord with DSH's shortcut service so it
       // reaches the page even when the host intercepts native key bindings.
-      const installResetShortcut = (scope) => {
+      // Re-registering after a settings edit keeps the host binding in sync.
+      const installShortcuts = (scope) => {
         const service = typeof scope.get === 'function' ? scope.get('shortcuts') : undefined;
         if (service === undefined || service === null || typeof service.register !== 'function') return;
-        try {
-          scope.effect(() => service.register({
-            id: 'notepad.resetGeometry',
-            label: () => translate('resetShortcut'),
-            aliases: ['reset notepad', 'reset notepad geometry'],
-            defaults: {
-              'desktop:macos': { code: 'KeyR', modifiers: ['primary', 'shift'] },
-              'desktop:windows': { code: 'KeyR', modifiers: ['primary', 'shift'] },
-              'desktop:linux': { code: 'KeyR', modifiers: ['primary', 'shift'] },
-              'web:macos': { code: 'KeyR', modifiers: ['primary', 'shift'] },
-              'web:windows': { code: 'KeyR', modifiers: ['primary', 'shift'] },
-              'web:linux': { code: 'KeyR', modifiers: ['primary', 'shift'] },
-            },
+        let disposeCommands = null;
+        let boundSignature = '';
+        const commands = [
+          {
+            action: 'toggle',
+            id: 'notepad.toggleVisibility',
+            labelKey: 'shortcutToggle',
+            aliases: ['show notepad', 'hide notepad', 'toggle notepad'],
             regions: ['page', 'editable'],
-            modals: [],
-            resolve: () => ({ status: 'handled', run: requestUiReset }),
-          }), 'dsh-notepad: reset shortcut');
-          resetShortcutHandledByHost = true;
-        } catch (error) {
-          console.warn('[dsh-notepad] reset shortcut registration failed:', error?.message ?? error);
+            run: requestToggleVisibility,
+          },
+          {
+            action: 'reset',
+            id: 'notepad.resetGeometry',
+            labelKey: 'resetShortcut',
+            aliases: ['reset notepad', 'reset notepad geometry'],
+            regions: ['page', 'editable'],
+            run: requestUiReset,
+          },
+          {
+            action: 'undo',
+            id: 'notepad.undo',
+            labelKey: 'shortcutUndo',
+            aliases: ['undo notepad'],
+            regions: ['page'],
+            run: () => requestHistory('undo'),
+          },
+          {
+            action: 'redo',
+            id: 'notepad.redo',
+            labelKey: 'shortcutRedo',
+            aliases: ['redo notepad'],
+            regions: ['page'],
+            run: () => requestHistory('redo'),
+          },
+          {
+            action: 'save',
+            id: 'notepad.save',
+            labelKey: 'shortcutSave',
+            aliases: ['save notepad'],
+            regions: ['page', 'editable'],
+            run: requestSaveNote,
+          },
+        ];
+        const register = () => {
+          const settings = readSettings();
+          const signature = SHORTCUT_ACTIONS
+            .map((action) => settings.shortcuts[action])
+            .join('\u0000');
+          if (signature === boundSignature && disposeCommands !== null) return;
+          boundSignature = signature;
+          if (disposeCommands !== null) {
+            disposeCommands();
+            disposeCommands = null;
+          }
+          hostHandledShortcuts.clear();
+          const disposers = [];
+          for (const command of commands) {
+            const parsed = parseShortcut(settings.shortcuts[command.action]);
+            if (parsed === null) continue;
+            const chord = { code: parsed.code, modifiers: [...parsed.modifiers] };
+            try {
+              const dispose = service.register({
+                id: command.id,
+                label: () => translate(command.labelKey),
+                aliases: command.aliases,
+                defaults: {
+                  'desktop:macos': { ...chord, modifiers: [...chord.modifiers] },
+                  'desktop:windows': { ...chord, modifiers: [...chord.modifiers] },
+                  'desktop:linux': { ...chord, modifiers: [...chord.modifiers] },
+                  'web:macos': { ...chord, modifiers: [...chord.modifiers] },
+                  'web:windows': { ...chord, modifiers: [...chord.modifiers] },
+                  'web:linux': { ...chord, modifiers: [...chord.modifiers] },
+                },
+                regions: command.regions,
+                modals: [],
+                resolve: () => ({
+                  status: 'handled',
+                  run: () => {
+                    if (!shortcutRecording) command.run();
+                  },
+                }),
+              });
+              if (typeof dispose === 'function') disposers.push(dispose);
+              hostHandledShortcuts.add(command.action);
+            } catch (error) {
+              console.warn(`[dsh-notepad] ${command.id} registration failed:`, error?.message ?? error);
+            }
+          }
+          disposeCommands = () => {
+            for (const dispose of disposers) {
+              try {
+                dispose();
+              } catch {
+                /* unload must not throw */
+              }
+            }
+            hostHandledShortcuts.clear();
+          };
+        };
+        register();
+        const unsubscribe = subscribeSettings(register);
+        const cleanup = () => {
+          unsubscribe();
+          if (disposeCommands !== null) disposeCommands();
+          disposeCommands = null;
+          boundSignature = '';
+        };
+        if (typeof scope.effect === 'function') {
+          scope.effect(() => cleanup, 'dsh-notepad: shortcut commands');
         }
       };
       if (ctx.get('shortcuts') !== undefined) {
-        installResetShortcut(ctx);
+        installShortcuts(ctx);
       } else if (typeof ctx.inject === 'function') {
         try {
-          ctx.inject(['shortcuts'], (scoped) => installResetShortcut(scoped));
+          ctx.inject(['shortcuts'], (scoped) => installShortcuts(scoped));
         } catch {
-          /* The raw key listener and header button remain as fallbacks. */
+          /* The raw key listener and header buttons remain as fallbacks. */
         }
       }
 
@@ -4161,6 +6147,19 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         );
       } catch (error) {
         console.warn('[dsh-notepad] could not register shell.overlay:', error?.message ?? error);
+      }
+
+      // Settings tab: style, saving, history, buttons, shortcuts, AI and window.
+      try {
+        ctx.effect(
+          () => slots.inject('settings.section', () => slots.register(
+            { name: 'settings.section', id: 'notepad', order: 26, label: () => translate('settingsTab') },
+            () => h(NotepadSettings, { t: (key, params) => translate(key, params) }),
+          )),
+          'dsh-notepad: settings tab',
+        );
+      } catch (error) {
+        console.warn('[dsh-notepad] could not register settings.section:', error?.message ?? error);
       }
     }
 

@@ -359,8 +359,9 @@ globalThis.fetch = async (input, init = {}) => {
     return jsonResponse({
       ok: true,
       workspaces: [
-        { id: 'ws-demo', path: ROOT, title: 'demo', count: 1 },
-        { id: 'ws-other', path: 'D:\\Projects\\other', title: 'other', count: 2 },
+        { id: 'ws-demo', path: ROOT, title: 'demo', count: 1, hasContent: true },
+        { id: 'ws-other', path: 'D:\\Projects\\other', title: 'other', count: 2, hasContent: false },
+        { id: 'ws-third', path: 'D:\\Projects\\third', title: 'third', count: 3, hasContent: true },
       ],
     });
   }
@@ -546,27 +547,37 @@ const ctx = {
 
 face.apply(ctx);
 
-assert.deepEqual(injected, ['shell.overlay']);
+assert.deepEqual(injected, ['shell.overlay', 'settings.section']);
 assert.equal(styleTags.length, 1, 'styles injected once');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-card'));
 assert.ok(styleTags[0].textContent.includes('var(--dsw-font-family'), 'uses the DSH/system font family');
-assert.ok(!styleTags[0].textContent.includes('ui-monospace'), 'no monospace font remains');
+assert.ok(styleTags[0].textContent.includes('--np-font'), 'the notepad font follows a style variable');
 assert.ok(styleTags[0].textContent.includes('body[data-ds-dark-theme]'), 'dark-mode overrides exist');
 assert.ok(styleTags[0].textContent.includes('transition:height'), 'collapse animation exists');
 assert.ok(styleTags[0].textContent.includes('visibility:hidden'), 'hide animation exists');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-title-add'), 'empty titles use a click target');
 assert.ok(!styleTags[0].textContent.includes('.dsh-np-title-add:hover'), 'the empty-title click target has no hover style');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-actiongroup'), 'hover action groups have styles');
-assert.ok(styleTags[0].textContent.includes('transition-delay:.18s'), 'action groups wait before expanding');
-assert.ok(styleTags[0].textContent.includes('max-height:240px') && styleTags[0].textContent.includes('overflow-y:hidden'),
+assert.ok(styleTags[0].textContent.includes('var(--np-group-delay'), 'action groups use the configurable hover delay');
+assert.ok(styleTags[0].textContent.includes('@keyframes dsh-np-item-out'), 'archive / delete cards have an exit animation');
+assert.ok(styleTags[0].textContent.includes('max-height:var(--np-seg-max'), 'the card height limit is configurable');
+assert.ok(styleTags[0].textContent.includes('overflow-y:hidden'),
   'the textarea hides its scrollbar until the height limit');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-preview'), 'image preview styles exist');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-confirm'), 'delete confirmation styles exist');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-set'), 'settings tab styles exist');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-toggle'), 'settings use toggle switches');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-drop'), 'settings use a custom dropdown');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-img-remove{position:absolute;top:-6px;right:-6px'),
+  'the image remove button sits on the thumbnail corner');
 assert.deepEqual(localeRegistered.map((entry) => entry.namespace), ['dsh-notepad']);
 const overlay = registrations.find((entry) => entry.options.name === 'shell.overlay');
 assert.ok(overlay, 'registers shell.overlay');
 assert.equal(overlay.options.id, 'notepad');
 assert.equal(overlay.options.order, 70);
+const settingsRegistration = registrations.find((entry) => entry.options.name === 'settings.section');
+assert.ok(settingsRegistration, 'registers a settings.section tab');
+assert.equal(settingsRegistration.options.id, 'notepad');
 
 // ---------------------------------------------------------------------------
 // Render + interactions
@@ -585,6 +596,11 @@ async function renderRounds(rounds = 1, wait = 25) {
     await new Promise((resolve) => setTimeout(resolve, wait));
   }
   return { text: text.join(' '), seen };
+}
+
+/** Wait for the archive / delete exit animation before asserting removal. */
+async function settleLeave() {
+  await new Promise((resolve) => setTimeout(resolve, 210));
 }
 
 function findByTitle(seen, title) {
@@ -818,6 +834,7 @@ assert.ok(findByTitle(afterBatchSend.seen, '显示归档') || findByTitle(afterB
 const deleteButton = findAllByTitle(afterBatchSend.seen, '删除此段')[0];
 assert.ok(deleteButton, 'archived card exposes delete');
 await deleteButton.element.props.onClick();
+await settleLeave();
 const afterDelete = await renderRounds(2);
 assert.equal(archivedCards(afterDelete.seen).length, 3, 'archived segment deleted');
 assert.ok(afterDelete.text.includes('已删除'));
@@ -841,6 +858,7 @@ const clearArchive = afterRestore.seen.find(({ element }) => element.type === 'b
   && element.props.children === '清空归档');
 assert.ok(clearArchive, 'clear-archive link exists');
 await clearArchive.element.props.onClick();
+await settleLeave();
 const afterClear = await renderRounds(2);
 assert.equal(archivedCards(afterClear.seen).length, 0, 'clear archive removes every archived card');
 assert.ok(afterClear.text.includes('还没有归档的分段'));
@@ -857,7 +875,7 @@ assert.equal(copyButton.element.props.disabled, false);
 await copyButton.element.props.onClick();
 const afterCopy = await renderRounds(1);
 assert.ok(afterCopy.text.includes('已复制'), 'copy toast shown');
-assert.equal(clipboardWrites.at(-1), '第一', 'copy-all writes only active segments');
+assert.equal(clipboardWrites.at(-1), '段改', 'copy-all writes only active segments');
 assert.ok(!clipboardWrites.at(-1).includes('已归档内容'), 'copy-all never includes archived content');
 assert.ok(!clipboardWrites.at(-1).includes('第二段内容'), 'copy-all never includes other archived content');
 
@@ -877,6 +895,8 @@ imageInput.element.props.onChange({ currentTarget: { files: [pickFile], value: '
 const afterPick = await renderRounds(3);
 assert.equal(uploadedImages, 0, 'a selected image with a host path is not copied');
 assert.ok(afterPick.text.includes('1 张图片'), 'footer counts picked images');
+assert.equal(afterPick.seen.filter(({ element }) => element.props?.className === 'dsh-np-img-name').length, 0,
+  'uploaded image chips do not display the file name');
 assert.equal(afterPick.seen.filter(({ element }) => element.type === 'img').length, 1, 'image chip renders a thumbnail');
 const pickedSrc = afterPick.seen.find(({ element }) => element.type === 'img').element.props.src;
 assert.ok(String(pickedSrc).includes('api/file?path='), 'thumbnail uses the authenticated file route');
@@ -924,7 +944,7 @@ assert.ok(insertWithImages, 'image-bearing segment can still be inserted');
 await insertWithImages.element.props.onClick();
 assert.equal(
   inserted.at(-1).text,
-  '第一\n![picked.png](pics/picked.png)\n![clip.png](.dsh/notepad/images/uploaded-1.png)',
+  '段改\n![picked.png](pics/picked.png)\n![clip.png](.dsh/notepad/images/uploaded-1.png)',
   'insert appends path-based Markdown image references',
 );
 
@@ -957,7 +977,7 @@ const afterAddOne = await renderRounds(2);
 await pressButton(afterAddOne.seen, '新建分段');
 const afterAddTwo = await renderRounds(2);
 assert.equal(textareas(afterAddTwo.seen).length, 3, 'new segments are created');
-assert.deepEqual(textareas(afterAddTwo.seen).map(({ element }) => element.props.value), ['第一', '', ''], 'new segments land at the bottom');
+assert.deepEqual(textareas(afterAddTwo.seen).map(({ element }) => element.props.value), ['段改', '', ''], 'new segments land at the bottom');
 assert.equal(findAllByClass(afterAddTwo.seen, 'dsh-np-title-input').length, 0, 'empty titles still render no inputs');
 
 const firstNew = textareas(afterAddTwo.seen)[1];
@@ -966,7 +986,7 @@ firstNew.element.props.onChange({ target: { value: 'A' } });
 const afterA = await renderRounds(1);
 secondNew.element.props.onChange({ target: { value: 'B' } });
 const afterAB = await renderRounds(1);
-assert.deepEqual(textareas(afterAB.seen).map(({ element }) => element.props.value), ['第一', 'A', 'B']);
+assert.deepEqual(textareas(afterAB.seen).map(({ element }) => element.props.value), ['段改', 'A', 'B']);
 
 // Arrow keys move the caret between cards ---------------------------------
 const arrowAreas = textareas(afterAB.seen);
@@ -1022,12 +1042,20 @@ const afterTitle = await renderRounds(1);
 assert.equal(findAllByClass(afterTitle.seen, 'dsh-np-title-input')[0].element.props.value, '合并标题');
 
 // Insert / send / archive-delete hover groups ----------------------------
-assert.equal(findAllByClass(afterTitle.seen, 'dsh-np-actiongroup').length, 11,
-  'the toolbar and every card wrap insert / send / archive-delete in expanding groups');
+assert.equal(findAllByClass(afterTitle.seen, 'dsh-np-actiongroup').length, 13,
+  'the toolbar and every card wrap insert / send / archive-delete in expanding groups, plus expand/collapse-all');
 assert.equal(findAllByTitle(afterTitle.seen, '在新会话中插入').length, 4,
   'each insert button exposes a new-session action');
 assert.equal(findAllByTitle(afterTitle.seen, '在新会话中发送').length, 4,
   'each send button exposes a new-session action');
+const newSessionExtras = afterTitle.seen.filter(({ element }) =>
+  element.type === 'button'
+  && (element.props.title === '在新会话中插入' || element.props.title === '在新会话中发送'));
+assert.ok(newSessionExtras.length === 8, 'all new-session extras exist');
+assert.ok(newSessionExtras.some(({ element }) => element.props.children?.type?.name === 'NewSessionIcon'),
+  'insert extras use the insert-into-session icon');
+assert.ok(newSessionExtras.some(({ element }) => element.props.children?.type?.name === 'NewSessionSendIcon'),
+  'send extras use the send-to-session icon');
 assert.equal(findAllByTitle(afterTitle.seen, '删除此段（不可恢复）').length, 3,
   'every active card exposes delete in the archive group');
 assert.equal(findAllByTitle(afterTitle.seen, '替换此段').length, 6,
@@ -1050,7 +1078,7 @@ await mergeButton.element.props.onClick();
 const afterMerge = await renderRounds(2);
 assert.deepEqual(
   textareas(afterMerge.seen).map(({ element }) => element.props.value),
-  ['第一', 'A\n\nB'],
+  ['段改', 'A\n\nB'],
   'merging keeps the merged card at the topmost selected position',
 );
 assert.equal(findAllByClass(afterMerge.seen, 'dsh-np-title-input')[0].element.props.value, '合并标题', 'merged card keeps the titles');
@@ -1063,7 +1091,7 @@ assert.equal(optimizeRequests.at(-1).text, 'A\n\nB', 'the AI request carries the
 assert.equal(optimizeRequests.at(-1).title, '合并标题', 'the AI request carries the card title');
 assert.deepEqual(
   textareas(afterOptimizeOne.seen).map(({ element }) => element.props.value),
-  ['第一', '优化：A\n\nB'],
+  ['段改', '优化：A\n\nB'],
   'single-card AI optimization replaces only that card',
 );
 const undoOptimizeOne = findByTitle(afterOptimizeOne.seen, '撤销优化');
@@ -1072,7 +1100,7 @@ await undoOptimizeOne.element.props.onClick();
 const afterUndoOptimizeOne = await renderRounds(2);
 assert.deepEqual(
   textareas(afterUndoOptimizeOne.seen).map(({ element }) => element.props.value),
-  ['第一', 'A\n\nB'],
+  ['段改', 'A\n\nB'],
   'undoing the card optimization restores its text',
 );
 assert.equal(findAllByTitle(afterUndoOptimizeOne.seen, '撤销优化').length, 0,
@@ -1086,7 +1114,7 @@ assert.equal(optimizeRequests.length, optimizeCountBefore,
   'unchanged content is optimized from the cache without another model call');
 assert.deepEqual(
   textareas(afterOptimizeAgain.seen).map(({ element }) => element.props.value),
-  ['第一', '优化：A\n\nB'],
+  ['段改', '优化：A\n\nB'],
   'the cached answer is applied again',
 );
 
@@ -1106,7 +1134,7 @@ assert.equal(optimizeRequests.length - selectedOptimizeBefore, 2,
   'batch optimization visits every selected card, cache only skipping exact repeats');
 assert.deepEqual(
   textareas(afterOptimizeSelected.seen).map(({ element }) => element.props.value),
-  ['优化：第一', '优化：优化：A\n\nB'],
+  ['优化：段改', '优化：优化：A\n\nB'],
   'batch optimization rewrites only the selected cards',
 );
 const toolbarUndo = afterOptimizeSelected.seen.find(({ element }) => element.type === 'button'
@@ -1116,7 +1144,7 @@ await toolbarUndo.element.props.onClick();
 const afterBatchUndo = await renderRounds(2);
 assert.deepEqual(
   textareas(afterBatchUndo.seen).map(({ element }) => element.props.value),
-  ['第一', '优化：A\n\nB'],
+  ['段改', '优化：A\n\nB'],
   'the toolbar undo restores every batch-edited card',
 );
 assert.equal(findAllByTitle(afterBatchUndo.seen, '撤销优化').length, 0,
@@ -1143,7 +1171,7 @@ dragArticles[1].element.props.onDrop({ dataTransfer: { types: [] }, preventDefau
 const afterReorder = await renderRounds(2);
 assert.deepEqual(
   textareas(afterReorder.seen).map(({ element }) => element.props.value),
-  ['优化：A\n\nB', '第一'],
+  ['优化：A\n\nB', '段改'],
   'dragging a card updates the display order',
 );
 assert.equal(sidebarRows[0].attributes['data-np-unsent'], '2', 'workspace badge follows the live pending count');
@@ -1248,6 +1276,7 @@ const confirmDeleteButton = findAllByClass(afterDeletePromptAgain.seen, 'dsh-np-
   .find(({ element }) => element.props['data-danger'] === 'true');
 assert.ok(confirmDeleteButton, 'the dialog has a destructive confirm button');
 await confirmDeleteButton.element.props.onClick();
+await settleLeave();
 const afterActiveDelete = await renderRounds(2);
 assert.equal(textareas(afterActiveDelete.seen).length, 1, 'the active segment is deleted directly');
 assert.equal(afterActiveDelete.seen.filter(({ element }) => element.props?.className === 'dsh-np-toast-action').length, 0,
@@ -1261,7 +1290,7 @@ const startSessionCallsBefore = uiWorkspace.startSessionCalls.length;
 await insertNewButton.element.props.onClick();
 assert.equal(uiWorkspace.startSessionCalls.length, startSessionCallsBefore + 1);
 assert.deepEqual(uiWorkspace.startSessionCalls.at(-1).options, {
-  prompt: '第一\n![picked.png](pics/picked.png)',
+  prompt: '段改\n![picked.png](pics/picked.png)',
   clearPreviousDraft: true,
 });
 assert.ok((await renderRounds(1)).text.includes('已在新会话中填入内容'));
@@ -1274,7 +1303,7 @@ const afterSendNew = await renderRounds(3);
 assert.equal(createdSessions, 1, 'sending in a new session creates it first');
 assert.equal(createdSessionRequests.at(-1).cwd, ROOT);
 assert.equal(sent.length, sentBeforeNew + 1);
-assert.equal(sent.at(-1), '第一\n![picked.png](pics/picked.png)', 'the new session receives the segment text');
+assert.equal(sent.at(-1), '段改\n![picked.png](pics/picked.png)', 'the new session receives the segment text');
 assert.equal(uiWorkspace.openSessionCalls.at(-1), 'session-new-1', 'the new session is opened');
 assert.equal(textareas(afterSendNew.seen).length, 0, 'sending in a new session archives the segment');
 assert.ok(afterSendNew.text.includes('已在新会话中发送'));
@@ -1345,6 +1374,7 @@ assert.deepEqual(textareas(afterSplitEnd.seen).map(({ element }) => element.prop
 const trailingDelete = findAllByTitle(afterSplitEnd.seen, '删除此段（不可恢复）').at(-1);
 assert.ok(trailingDelete, 'the empty card exposes its delete action');
 await trailingDelete.element.props.onClick();
+await settleLeave();
 const afterEmptyDelete = await renderRounds(2);
 assert.equal(findByClass(afterEmptyDelete.seen, 'dsh-np-confirm'), undefined,
   'deleting an empty segment skips the confirmation dialog');
@@ -1400,14 +1430,361 @@ faceTwo.apply({
   },
   effect(fn) { return fn(); },
 });
-assert.equal(registeredShortcuts.length, 1, 'the client registers the reset command with DSH shortcuts');
-const resetCommand = registeredShortcuts[0];
-assert.equal(resetCommand.id, 'notepad.resetGeometry');
+assert.equal(registeredShortcuts.length, 5, 'the client registers toggle / reset / undo / redo / save with DSH shortcuts');
+const resetCommand = registeredShortcuts.find((command) => command.id === 'notepad.resetGeometry');
+assert.ok(resetCommand, 'the reset command is registered');
 assert.deepEqual(resetCommand.defaults['desktop:windows'], { code: 'KeyR', modifiers: ['primary', 'shift'] });
 assert.deepEqual(resetCommand.defaults['web:windows'], { code: 'KeyR', modifiers: ['primary', 'shift'] });
 assert.ok(resetCommand.regions.includes('editable'), 'the reset shortcut also works while typing');
 assert.equal(resetCommand.resolve().status, 'handled');
 assert.equal(typeof resetCommand.resolve().run, 'function');
+
+const toggleCommand = registeredShortcuts.find((command) => command.id === 'notepad.toggleVisibility');
+assert.ok(toggleCommand, 'the visibility command is registered');
+assert.deepEqual(toggleCommand.defaults['desktop:windows'], { code: 'KeyN', modifiers: ['primary', 'shift'] });
+const undoCommand = registeredShortcuts.find((command) => command.id === 'notepad.undo');
+assert.ok(undoCommand, 'the undo command is registered');
+assert.deepEqual(undoCommand.defaults['desktop:windows'], { code: 'KeyZ', modifiers: ['primary'] });
+assert.deepEqual(undoCommand.regions, ['page'], 'undo never steals a textarea native undo');
+const redoCommand = registeredShortcuts.find((command) => command.id === 'notepad.redo');
+assert.ok(redoCommand, 'the redo command is registered');
+assert.deepEqual(redoCommand.defaults['desktop:windows'], { code: 'KeyZ', modifiers: ['primary', 'shift'] });
+const saveCommand = registeredShortcuts.find((command) => command.id === 'notepad.save');
+assert.ok(saveCommand, 'the save command is registered');
+assert.deepEqual(saveCommand.defaults['desktop:windows'], { code: 'KeyS', modifiers: ['primary'] });
+
+// ---------------------------------------------------------------------------
+// Settings tab, history, collapse, copy, workspace switching and AI selection
+// ---------------------------------------------------------------------------
+function elementText(node) {
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(elementText).join('');
+  if (node !== null && node !== undefined && node.$$element) return elementText(node.props?.children);
+  return '';
+}
+
+function renderSettings() {
+  const seen = [];
+  const text = renderTree(settingsRegistration.component(), 'settings', seen).join(' ');
+  return { text, seen };
+}
+
+function settingsNumber(seen, label) {
+  return seen.find(({ element }) => element.type === 'input'
+    && element.props['aria-label'] === label);
+}
+
+function settingsSwitches(seen) {
+  return seen.filter(({ element }) => element.type === 'button' && element.props.role === 'switch');
+}
+
+let settingsView = renderSettings();
+assert.ok(settingsView.text.includes('记事本设置'), 'the settings tab renders its title');
+assert.equal(settingsSwitches(settingsView.seen).length, 2, 'auto-save and button groups use toggles');
+assert.equal(settingsView.seen.filter(({ element }) =>
+  element.type === 'input' && element.props['aria-label'] === '显示 / 隐藏记事本').length, 1,
+'the shortcut binding field exists');
+assert.equal(settingsView.seen.filter(({ element }) =>
+  element.type === 'input' && element.props['aria-label'] === '默认宽度').length, 1,
+ 'the default width field exists');
+assert.equal(settingsView.seen.filter(({ element }) =>
+  element.type === 'input' && element.props['aria-label'] === '展开 hover 时间阈值').length, 1,
+ 'the hover delay field is visible while button groups are enabled');
+
+// Manual save mode: no debounce PUT, and the header exposes a save button.
+await renderRounds(1, 700);
+const putCountBeforeManual = requests.filter((request) => request.method === 'PUT').length;
+settingsSwitches(settingsView.seen)[0].element.props.onClick();
+let afterToggle = await renderRounds(2);
+assert.ok(findByTitle(afterToggle.seen, '立即保存当前内容 · Ctrl+S')
+  || afterToggle.seen.some(({ element }) => element.type === 'button'
+    && String(element.props.title ?? '').startsWith('立即保存当前内容')),
+'the header shows a manual save button');
+
+const manualArea = textareas(afterToggle.seen)[0];
+const manualValue = `${manualArea.element.props.value}手动`;
+manualArea.element.props.onChange({ target: { value: manualValue } });
+await renderRounds(2, 700);
+assert.equal(requests.filter((request) => request.method === 'PUT').length, putCountBeforeManual,
+  'manual mode does not issue a debounced save');
+const manualSaveButton = afterToggle.seen.find(({ element }) => element.type === 'button'
+  && String(element.props.title ?? '').startsWith('立即保存当前内容'));
+assert.ok(manualSaveButton, 'the manual save button exists');
+await manualSaveButton.element.props.onClick();
+await renderRounds(2, 80);
+const manualPut = JSON.parse(requests.filter((request) => request.method === 'PUT').at(-1).body);
+assert.ok(manualPut.segments.some((segment) => segment.text === manualValue),
+  'the manual save button writes the current note');
+settingsView = renderSettings();
+settingsSwitches(settingsView.seen)[0].element.props.onClick();
+await renderRounds(1);
+
+// Theme / font size / button group mode are applied live.
+settingsView = renderSettings();
+const themeButton = settingsView.seen.find(({ element }) => element.type === 'button'
+  && element.props['aria-label'] === '配色主题');
+themeButton.element.props.onClick();
+settingsView = renderSettings();
+const oceanOption = settingsView.seen.find(({ element }) => element.type === 'button'
+  && element.props.role === 'option' && elementText(element).includes('海蓝'));
+assert.ok(oceanOption, 'the custom theme dropdown lists the ocean theme');
+oceanOption.element.props.onClick();
+const themed = await renderRounds(2);
+const themedCard = themed.seen.find(({ element }) => element.type === 'section'
+  && element.props['data-dsh-notepad'] === 'true');
+assert.equal(themedCard.element.props['data-np-theme'], 'ocean', 'the color theme reaches the floating card');
+
+settingsView = renderSettings();
+settingsNumber(settingsView.seen, '字号').element.props.onChange({ target: { value: '15' } });
+settingsView = renderSettings();
+settingsNumber(settingsView.seen, '字号').element.props.onBlur();
+const sized = await renderRounds(2);
+const sizedCard = sized.seen.find(({ element }) => element.type === 'section'
+  && element.props['data-dsh-notepad'] === 'true');
+assert.equal(sizedCard.element.props.style['--np-font-size'], '15px', 'the font size reaches the floating card');
+
+settingsView = renderSettings();
+settingsSwitches(settingsView.seen)[1].element.props.onClick();
+const flatGroups = await renderRounds(2);
+assert.ok(flatGroups.seen.filter(({ element }) => element.props?.className === 'dsh-np-actiongroup')
+  .every(({ element }) => element.props['data-expanded'] === 'true'),
+'disabling button groups expands every action at once');
+settingsView = renderSettings();
+assert.equal(settingsNumber(settingsView.seen, '展开 hover 时间阈值'), undefined,
+  'the hover delay setting is hidden while button groups are disabled');
+settingsSwitches(settingsView.seen)[1].element.props.onClick();
+await renderRounds(1);
+
+// Shortcut rebinding + restore.
+settingsView = renderSettings();
+const toggleShortcut = settingsView.seen.find(({ element }) => element.type === 'input'
+  && element.props['aria-label'] === '显示 / 隐藏记事本');
+toggleShortcut.element.props.onKeyDown({
+  key: 'Y',
+  code: 'KeyY',
+  ctrlKey: true,
+  metaKey: false,
+  shiftKey: false,
+  altKey: true,
+  preventDefault() {},
+});
+settingsView = renderSettings();
+const rebound = settingsView.seen.find(({ element }) => element.type === 'input'
+  && element.props['aria-label'] === '显示 / 隐藏记事本');
+assert.equal(rebound.element.props.value, 'Ctrl+Alt+Y', 'a pressed chord is bound to the shortcut');
+settingsView.seen.find(({ element }) => element.type === 'button'
+  && elementText(element) === '恢复默认快捷键').element.props.onClick();
+settingsView = renderSettings();
+assert.equal(settingsView.seen.find(({ element }) => element.type === 'input'
+  && element.props['aria-label'] === '显示 / 隐藏记事本').element.props.value, 'Ctrl+Shift+N',
+'restore-defaults brings back every default chord');
+
+// AI preset + selection-only optimization.
+settingsView = renderSettings();
+settingsView.seen.find(({ element }) => element.type === 'button'
+  && element.props['aria-label'] === '提示词预设').element.props.onClick();
+settingsView = renderSettings();
+settingsView.seen.find(({ element }) => element.type === 'button'
+  && element.props.role === 'option' && elementText(element).includes('自定义'))
+  .element.props.onClick();
+settingsView = renderSettings();
+const customPrompt = settingsView.seen.find(({ element }) => element.type === 'textarea'
+  && element.props['aria-label'] === '自定义提示词');
+assert.equal(customPrompt.element.props.disabled, false, 'the custom prompt becomes editable');
+customPrompt.element.props.onChange({ target: { value: 'CUSTOM PROMPT' } });
+await renderRounds(1);
+
+let selectionView = await renderRounds(2);
+const selectionArea = textareas(selectionView.seen)[0];
+const selectionText = selectionArea.element.props.value;
+const selectionNode = {
+  value: selectionText,
+  selectionStart: 1,
+  selectionEnd: Math.min(3, selectionText.length),
+  focus() {},
+  setSelectionRange(start, end) { this.range = [start, end]; },
+  scrollIntoView() {},
+};
+selectionArea.element.props.ref(selectionNode);
+selectionArea.element.props.onSelect();
+selectionView = await renderRounds(1);
+const optimizeSelectionButton = findByTitle(selectionView.seen, 'AI 优化选中内容');
+assert.ok(optimizeSelectionButton, 'a text selection switches the AI button to selection mode');
+const selectedText = selectionText.slice(1, Math.min(3, selectionText.length));
+const expectedSelectionResult = `${selectionText.slice(0, 1)}优化：${selectedText}${selectionText.slice(Math.min(3, selectionText.length))}`;
+selectionNode.value = expectedSelectionResult;
+await optimizeSelectionButton.element.props.onClick();
+const selectionDone = await renderRounds(3);
+assert.equal(optimizeRequests.at(-1).text, selectedText, 'only the selected text is sent to the model');
+assert.equal(optimizeRequests.at(-1).system, 'CUSTOM PROMPT', 'the custom AI prompt is sent to the host');
+assert.equal(textareas(selectionDone.seen)[0].element.props.value, expectedSelectionResult,
+  'the optimized selection is spliced back into the card');
+assert.deepEqual(selectionNode.range, [1, 1 + '优化：'.length + selectedText.length],
+  'the rewritten range stays selected');
+
+// Plugin history: structural operations undo / redo, textarea chords stay native.
+await renderRounds(1);
+const historyBase = await renderRounds(1);
+const cardsBeforeHistory = textareas(historyBase.seen).length;
+await pressButton(historyBase.seen, '新建分段');
+const afterAddedHistory = await renderRounds(2);
+assert.equal(textareas(afterAddedHistory.seen).length, cardsBeforeHistory + 1, 'a new card is added');
+const undoShortcutCommand = registeredShortcuts.find((command) => command.id === 'notepad.undo');
+const redoShortcutCommand = registeredShortcuts.find((command) => command.id === 'notepad.redo');
+assert.ok(undoShortcutCommand && redoShortcutCommand, 'undo / redo commands are registered');
+const pressUndoRedo = (shiftKey) => {
+  for (const listener of [...(listeners.get('keydown') ?? [])]) {
+    listener({
+      key: shiftKey ? 'Z' : 'z',
+      code: 'KeyZ',
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey,
+      altKey: false,
+      preventDefault() {},
+    });
+  }
+};
+pressUndoRedo(false);
+const afterUndoHistory = await renderRounds(2);
+assert.equal(textareas(afterUndoHistory.seen).length, cardsBeforeHistory,
+  'undo removes the new card');
+pressUndoRedo(true);
+const afterRedoHistory = await renderRounds(2);
+assert.equal(textareas(afterRedoHistory.seen).length, cardsBeforeHistory + 1,
+  'redo restores the new card');
+pressUndoRedo(false);
+await renderRounds(2);
+// A native textarea undo must not be intercepted by the plugin.
+const nativeGuard = listeners.get('keydown');
+const textareaTarget = { tagName: 'TEXTAREA' };
+const nativeView = await renderRounds(1);
+const countBeforeNative = textareas(nativeView.seen).length;
+for (const listener of [...(nativeGuard ?? [])]) {
+  listener({
+    key: 'z',
+    code: 'KeyZ',
+    ctrlKey: true,
+    metaKey: false,
+    shiftKey: false,
+    altKey: false,
+    target: textareaTarget,
+    preventDefault() { throw new Error('the plugin must not prevent native textarea undo'); },
+  });
+}
+await renderRounds(1);
+assert.equal(textareas((await renderRounds(1)).seen).length, countBeforeNative,
+  'a textarea undo is left to the browser');
+
+// Collapse and expand.
+let collapseView = await renderRounds(2);
+const foldButtons = collapseView.seen.filter(({ element }) => element.type === 'button'
+  && element.props.className === 'dsh-np-fold');
+assert.ok(foldButtons.length > 0, 'cards expose a fold button instead of a checkbox');
+const activeBeforeFold = textareas(collapseView.seen).length;
+foldButtons[0].element.props.onClick();
+collapseView = await renderRounds(2);
+assert.ok(findByClass(collapseView.seen, 'dsh-np-seg-preview'), 'a folded card shows its preview');
+assert.equal(textareas(collapseView.seen).length, activeBeforeFold - 1, 'folding hides the editor');
+await pressButton(collapseView.seen, '全部展开');
+collapseView = await renderRounds(2);
+assert.equal(textareas(collapseView.seen).length, activeBeforeFold, 'expand-all restores every editor');
+await pressButton(collapseView.seen, '全部折叠');
+collapseView = await renderRounds(2);
+assert.equal(textareas(collapseView.seen).length, 0, 'collapse-all folds every active card');
+await pressButton(collapseView.seen, '全部展开');
+await renderRounds(2);
+
+// Copy one segment and copy the selection.
+let copyView = await renderRounds(2);
+const segmentCopy = copyView.seen.find(({ element }) => element.type === 'button'
+  && element.props.title === '复制此段');
+await segmentCopy.element.props.onClick();
+assert.ok(clipboardWrites.length > 0, 'copying one segment writes the clipboard');
+const indexesForCopy = findAllByClass(copyView.seen, 'dsh-np-index');
+indexesForCopy[0].element.props.onClick();
+copyView = await renderRounds(1);
+const copySelectedButton = copyView.seen.find(({ element }) => element.type === 'button'
+  && String(element.props.title ?? '').startsWith('复制选中的'));
+assert.ok(copySelectedButton, 'the toolbar exposes copy-selected');
+await copySelectedButton.element.props.onClick();
+assert.ok(clipboardWrites.at(-1).includes('优化：'), 'copy-selected writes the selected content');
+
+// Workspace dropdown: only workspaces with note content, switching opens a session.
+let workspaceView = await renderRounds(2);
+assert.ok(!workspaceView.text.includes('other'), 'a workspace without note content is not listed');
+const workspaceButton = workspaceView.seen.find(({ element }) => element.type === 'button'
+  && element.props['aria-label'] === '切换工作区');
+workspaceButton.element.props.onClick();
+workspaceView = await renderRounds(1);
+const thirdWorkspace = workspaceView.seen.find(({ element }) => element.type === 'button'
+  && element.props.role === 'menuitem' && elementText(element).includes('third'));
+assert.ok(thirdWorkspace, 'a workspace with content is listed');
+const startCallsBeforeSwitch = uiWorkspace.startSessionCalls.length;
+thirdWorkspace.element.props.onClick();
+await renderRounds(2);
+assert.deepEqual(uiWorkspace.startSessionCalls.at(-1), {
+  workspaceId: 'ws-third',
+  options: { clearPreviousDraft: true },
+}, 'choosing a workspace starts a new session in it');
+assert.equal(uiWorkspace.startSessionCalls.length, startCallsBeforeSwitch + 1);
+
+// Archive order + auto-scroll, with the exit animation before removal.
+let archiveView = await renderRounds(2);
+if (findByTitle(archiveView.seen, '隐藏归档')) {
+  await pressButton(archiveView.seen, '隐藏归档');
+  archiveView = await renderRounds(1);
+}
+const firstActiveText = textareas(archiveView.seen)[0].element.props.value;
+const archiveButton = findAllByTitle(archiveView.seen, '归档此段')[0];
+await archiveButton.element.props.onClick();
+const leavingView = await renderRounds(1);
+assert.ok(leavingView.seen.some(({ element }) => element.props?.['data-leaving'] === 'true'),
+  'archiving starts an exit animation');
+await settleLeave();
+const archivedView = await renderRounds(2);
+const firstArchived = archivedCards(archivedView.seen)[0];
+assert.ok(firstArchived && elementText(firstArchived.element).includes(firstActiveText),
+  'the newest archived segment sits at the top of the archive');
+const archiveListElement = findByClass(archivedView.seen, 'dsh-np-archive-list');
+let archiveScrollCalls = 0;
+if (archiveListElement) {
+  archiveListElement.element.props.ref({
+    firstElementChild: { scrollIntoView() { archiveScrollCalls += 1; } },
+  });
+}
+await pressButton(archivedView.seen, '显示归档');
+await renderRounds(2);
+await new Promise((resolve) => setTimeout(resolve, 100));
+assert.ok(archiveScrollCalls > 0, 'opening the archive scrolls to the newest archived card');
+
+// Back to the default look so later assertions stay stable.
+settingsView = renderSettings();
+const hostTheme = (() => {
+  const button = settingsView.seen.find(({ element }) => element.type === 'button'
+    && element.props['aria-label'] === '配色主题');
+  button.element.props.onClick();
+  const view = renderSettings();
+  return view.seen.find(({ element }) => element.type === 'button'
+    && element.props.role === 'option' && elementText(element).includes('跟随宿主'));
+})();
+if (hostTheme) hostTheme.element.props.onClick();
+settingsView = renderSettings();
+const sizeInput = settingsNumber(settingsView.seen, '字号');
+if (sizeInput) sizeInput.element.props.onChange({ target: { value: '13' } });
+settingsView = renderSettings();
+const sizeCommit = settingsNumber(settingsView.seen, '字号');
+if (sizeCommit) sizeCommit.element.props.onBlur();
+settingsView = renderSettings();
+if (settingsView.seen.find(({ element }) => element.type === 'button'
+  && element.props['aria-label'] === '提示词预设')) {
+  settingsView.seen.find(({ element }) => element.type === 'button'
+    && element.props['aria-label'] === '提示词预设').element.props.onClick();
+  const balanced = renderSettings().seen.find(({ element }) => element.type === 'button'
+    && element.props.role === 'option' && elementText(element).includes('通用润色'));
+  if (balanced) balanced.element.props.onClick();
+}
+await renderRounds(1);
 
 // UI persistence ---------------------------------------------------------
 const storedUi = JSON.parse(storage.get('dsh-notepad.ui.v1'));

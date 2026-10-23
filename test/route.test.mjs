@@ -67,6 +67,29 @@ function countingLlm(output) {
   };
 }
 
+/** Fake LLM that counts calls and records the system prompt of each request. */
+function capturingLlm(output) {
+  const state = { calls: 0, systems: [] };
+  return {
+    state,
+    llm: {
+      async resolveCallConfig(config) {
+        return { ...config };
+      },
+      async prepareCall(base) {
+        state.calls += 1;
+        return {
+          async *stream(request) {
+            state.systems.push(request.system);
+            if (output !== '') yield { type: 'text-delta', text: output };
+            yield { type: 'finish', reason: { kind: 'stop' } };
+          },
+        };
+      },
+    },
+  };
+}
+
 async function serve(t, ctx) {
   const server = createServer((req, res) => {
     handleRequest(ctx, req, res).catch((error) => {
@@ -345,6 +368,8 @@ test('GET unsent returns a pending count for every registered workspace', async 
     ['ws-b', 0],
   ]);
   assert.equal(body.workspaces[0].path, rootA);
+  assert.equal(body.workspaces[0].hasContent, true, 'content workspaces are marked for the dropdown');
+  assert.equal(body.workspaces[1].hasContent, false, 'empty workspaces are not offered');
   assert.ok(!JSON.stringify(body).includes('待发'), 'counts never expose note text');
 });
 
@@ -398,6 +423,49 @@ test('POST optimize reuses the answer for unchanged content', async (t) => {
   assert.equal(second.text, '缓存的优化结果');
   assert.equal(second.cached, true, 'the second request is answered from the cache');
   assert.equal(counting.state.calls, 1, 'the model is called exactly once');
+});
+
+test('POST optimize forwards a custom preset and caches per prompt', async (t) => {
+  const root = await tempDir(t);
+  const capturing = capturingLlm('自定义优化结果');
+  const base = await serve(t, fakeContext({
+    workspaces: [{ id: 'ws', path: root }],
+    llm: capturing.llm,
+    selection: { provider: 'deepseek', model: 'deepseek-chat' },
+  }));
+  const request = (system) => fetch(`${base}/dsh-notepad/api/optimize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root, sessionId: 's1', title: '', text: '同一段内容', system }),
+  });
+  const first = await (await request('精简并保留全部事实')).json();
+  assert.equal(first.ok, true);
+  assert.equal(first.cached, false);
+  assert.ok(capturing.state.systems[0].startsWith('精简并保留全部事实'));
+  assert.ok(capturing.state.systems[0].includes('Return only the rewritten text'),
+    'the output contract is appended to a custom prompt');
+  const same = await (await request('精简并保留全部事实')).json();
+  assert.equal(same.cached, true, 'the same prompt is answered from the cache');
+  const other = await (await request('改写成专业文档')).json();
+  assert.equal(other.cached, false, 'a different prompt re-runs the model');
+  assert.equal(capturing.state.calls, 2);
+  assert.ok(capturing.state.systems[1].startsWith('改写成专业文档'));
+});
+
+test('POST optimize rejects an oversized custom prompt', async (t) => {
+  const root = await tempDir(t);
+  const base = await serve(t, fakeContext({
+    workspaces: [{ path: root }],
+    llm: fakeLlm('x'),
+    selection: { provider: 'p', model: 'm' },
+  }));
+  const response = await fetch(`${base}/dsh-notepad/api/optimize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root, sessionId: 's1', text: '内容', system: 'x'.repeat(4001) }),
+  });
+  assert.equal(response.status, 413);
+  assert.equal((await response.json()).code, 'too-large');
 });
 
 test('POST optimize reports a missing model as unavailable', async (t) => {

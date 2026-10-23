@@ -38,7 +38,7 @@ import {
 const ROUTE = '/dsh-notepad/api';
 
 /** Plugin version mirrored in package.json. */
-const VERSION = '0.7.0';
+const VERSION = '0.8.0';
 
 /** Request body cap for note writes. */
 const BODY_LIMIT = 1024 * 1024;
@@ -68,6 +68,16 @@ const OPTIMIZE_SYSTEM = [
   'while preserving its original language, meaning, technical facts, Markdown,',
   'code, file paths, and image links. Never invent facts or drop information.',
   'Return only the rewritten note text: no preamble, no explanation, and no code fence.',
+].join(' ');
+
+/** Longest custom AI instruction accepted from the client. */
+const MAX_OPTIMIZE_INSTRUCTION_CHARS = 4000;
+
+/** Always kept at the end of the system prompt, even for a custom preset. */
+const OPTIMIZE_OUTPUT_RULE = [
+  'Return only the rewritten text: no preamble, no explanation, and no code fence.',
+  'Preserve the original language, technical facts, Markdown, code, file paths, and image links.',
+  'Never invent facts or drop information.',
 ].join(' ');
 
 // ---------------------------------------------------------------------------
@@ -203,8 +213,10 @@ async function isKnownRoot(ctx, root, sessionId) {
 /**
  * Count pending segments for every registered workspace. The sidebar badge
  * only needs counts, so this route never returns note text or image paths.
+ * The notepad header dropdown also needs to know which workspaces actually
+ * hold notepad content (`hasContent`), which never exposes that content.
  * @param {import('@deepseek-ai/cordis').Context} ctx
- * @returns {Promise<Array<{id: string, path: string, title: string, count: number}>>}
+ * @returns {Promise<Array<{id: string, path: string, title: string, count: number, hasContent: boolean}>>}
  */
 async function listUnsentCounts(ctx) {
   const registry = ctx.get('workspaceRegistry');
@@ -215,8 +227,15 @@ async function listUnsentCounts(ctx) {
     const root = typeof workspace?.path === 'string' ? workspace.path : '';
     if (root === '') continue;
     let count = 0;
+    let hasContent = false;
     try {
-      count = unsentCount(await readNote(root));
+      const note = await readNote(root);
+      count = unsentCount(note);
+      hasContent = Array.isArray(note.segments) && note.segments.some((segment) => {
+        const text = typeof segment?.text === 'string' ? segment.text : '';
+        const images = Array.isArray(segment?.images) ? segment.images : [];
+        return text.trim() !== '' || images.length > 0;
+      });
     } catch {
       // A workspace directory may have disappeared; keep the other badges.
       count = 0;
@@ -226,6 +245,7 @@ async function listUnsentCounts(ctx) {
       path: root,
       title: typeof workspace.title === 'string' ? workspace.title : '',
       count,
+      hasContent,
     });
   }
   return out;
@@ -274,9 +294,22 @@ function cacheOptimizedText(key, text) {
   }
 }
 
-/** Workspace + title + text: everything the optimizer prompt depends on. */
-function optimizeCacheKey(root, title, text) {
-  return `${root}\u0000${title}\u0000${text}`;
+/** Workspace + title + instruction + text: everything the prompt depends on. */
+function optimizeCacheKey(root, title, text, instruction) {
+  return `${root}\u0000${title}\u0000${instruction ?? ''}\u0000${text}`;
+}
+
+/**
+ * Compose the system prompt for one optimization. A client-supplied preset
+ * replaces the default wording, but the output contract is always appended so
+ * a user-written instruction cannot make the model wrap or explain its answer.
+ * @param {string} instruction
+ * @returns {string}
+ */
+function optimizeSystemPrompt(instruction) {
+  const custom = typeof instruction === 'string' ? instruction.trim() : '';
+  if (custom === '') return OPTIMIZE_SYSTEM;
+  return `${custom.slice(0, MAX_OPTIMIZE_INSTRUCTION_CHARS)}\n\n${OPTIMIZE_OUTPUT_RULE}`;
 }
 
 /**
@@ -286,9 +319,10 @@ function optimizeCacheKey(root, title, text) {
  * @param {import('@deepseek-ai/cordis').Context} ctx
  * @param {string} text
  * @param {string} title
+ * @param {string} instruction
  * @returns {Promise<string>}
  */
-async function optimizeText(ctx, text, title) {
+async function optimizeText(ctx, text, title, instruction) {
   const llm = ctx.get('llm');
   if (llm === undefined || llm === null || typeof llm.prepareCall !== 'function'
     || typeof llm.resolveCallConfig !== 'function') {
@@ -326,12 +360,13 @@ async function optimizeText(ctx, text, title) {
   }
   const heading = title.trim() === '' ? '' : `Card title: ${title.trim()}\n\n`;
   const prompt = `${heading}Rewrite this note:\n\n${text}`;
+  const system = optimizeSystemPrompt(instruction);
   let output = '';
   try {
     const prepared = await llm.prepareCall(base, signal);
     for await (const chunk of prepared.stream({
       ...base,
-      system: OPTIMIZE_SYSTEM,
+      system,
       messages: [{
         role: 'user',
         content: [{ type: 'text', text: prompt }],
@@ -467,13 +502,22 @@ async function dispatchRequest(ctx, req, res) {
       );
     }
     const title = typeof body.title === 'string' ? body.title : '';
-    const cacheKey = optimizeCacheKey(root, title, text);
+    const instruction = typeof body.system === 'string'
+      ? body.system.slice(0, MAX_OPTIMIZE_INSTRUCTION_CHARS + 1)
+      : '';
+    if (instruction.length > MAX_OPTIMIZE_INSTRUCTION_CHARS) {
+      throw new NoteStoreError(
+        'too-large',
+        `AI instruction is too long (limit ${MAX_OPTIMIZE_INSTRUCTION_CHARS} characters).`,
+      );
+    }
+    const cacheKey = optimizeCacheKey(root, title, text, instruction);
     const cached = optimizeCache.get(cacheKey);
     if (typeof cached === 'string' && cached !== '') {
       sendJson(res, { ok: true, root, text: cached, cached: true });
       return;
     }
-    const optimized = await optimizeText(ctx, text, title);
+    const optimized = await optimizeText(ctx, text, title, instruction);
     cacheOptimizedText(cacheKey, optimized);
     sendJson(res, { ok: true, root, text: optimized, cached: false });
     return;
