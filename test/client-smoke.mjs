@@ -590,16 +590,18 @@ assert.ok(styleTags[0].textContent.includes('.dsh-np-toggle'), 'settings use tog
 assert.ok(styleTags[0].textContent.includes('.dsh-np-drop'), 'settings use a custom dropdown');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-img-remove{position:absolute;top:-6px;right:-6px'),
   'the image remove button sits on the thumbnail corner');
-assert.ok(styleTags[0].textContent.includes('.dsh-np-tools{display:flex;align-items:flex-start;flex-wrap:nowrap'),
-  'the button bar is a single horizontally scrolling row');
-assert.ok(styleTags[0].textContent.includes('height:35px') && styleTags[0].textContent.includes('overflow-x:auto'),
-  'the button bar reserves a fixed scrollbar row');
-assert.ok(styleTags[0].textContent.includes('.dsh-np-tools::-webkit-scrollbar{height:7px'),
-  'the horizontal scrollbar track keeps a constant height');
-assert.ok(styleTags[0].textContent.includes('border:2px solid transparent;background-clip:content-box'),
-  'the scrollbar thumb starts thin');
-assert.ok(styleTags[0].textContent.includes('.dsh-np-tools:hover::-webkit-scrollbar-thumb{border-width:1px'),
-  'the scrollbar thumb thickens on hover');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-tools{position:relative;display:flex;align-items:center;flex:none;height:33px'),
+  'the button bar is a single non-wrapping row again');
+assert.ok(!styleTags[0].textContent.includes('.dsh-np-tools::-webkit-scrollbar'),
+  'the button bar no longer has a scrollbar');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-toolbar-actions{position:absolute;right:2px'),
+  'the action buttons sit at the right edge');
+assert.ok(styleTags[0].textContent.includes('flex-wrap:nowrap'), 'the action buttons never wrap');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-toolbar-actions') && styleTags[0].textContent.includes('z-index:1'),
+  'the action buttons sit below the left-hand text');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-selectall{position:relative;z-index:2'),
+  'the select-all text covers overflowing actions');
+assert.ok(styleTags[0].textContent.includes('overflow:hidden'), 'the button bar clips overflow instead of scrolling');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-btn[data-danger=true]:hover'),
   'the toolbar danger item turns red on hover');
 assert.deepEqual(localeRegistered.map((entry) => entry.namespace), ['dsh-notepad']);
@@ -700,6 +702,15 @@ assert.ok(initial.text.includes('已保存'), 'status shows saved');
 assert.equal(sidebarRows[0].attributes['data-np-unsent'], '2', 'the current workspace row shows its pending count');
 assert.equal(sidebarRows[1].attributes['data-np-unsent'], '2', 'other workspace rows keep their own counts');
 assert.ok(unsentRequests.length > 0, 'sidebar counts are fetched');
+const selectAllLabel = findByClass(initial.seen, 'dsh-np-selectall');
+assert.equal(selectAllLabel.element.props.children[1].props.children, '全选',
+  'the selection hint reads 全选 when nothing is selected');
+const initialGroup = findAllByClass(initial.seen, 'dsh-np-actiongroup')[0];
+const groupPrimary = initialGroup.element.props.children[0];
+let blurredGroupButton = 0;
+groupPrimary.props.onPointerUp({ currentTarget: { blur() { blurredGroupButton += 1; } } });
+assert.equal(blurredGroupButton, 1,
+  'pointer activation blurs the action button so the group can collapse after the mouse leaves');
 
 // Auto refresh keeps the list scroll position -----------------------------
 const listRefProp = findByClass(initial.seen, 'dsh-np-list')?.element.props.ref;
@@ -862,6 +873,14 @@ assert.ok(selectAll, 'select-all checkbox exists');
 selectAll.element.props.onChange({ target: { checked: true } });
 const selected = await renderRounds(2);
 assert.ok(selected.text.includes('已选 2 段'), 'select-all selects every active segment');
+const toolbarActions = findByClass(selected.seen, 'dsh-np-toolbar-actions');
+assert.ok(toolbarActions, 'the action buttons have a dedicated right-aligned container');
+const firstAction = Array.isArray(toolbarActions.element.props.children)
+  ? toolbarActions.element.props.children[0]
+  : toolbarActions.element.props.children;
+assert.equal(firstAction?.props?.title, '取消选择', 'cancel-selection is the leftmost action button');
+assert.equal(findByClass(selected.seen, 'dsh-np-selectall').element.props.children[1].props.children, '已选 2 段',
+  'the left-hand label shows the selection count above the actions');
 const batchReplace = findByTitle(selected.seen, '替换为选中的 2 段');
 assert.ok(batchReplace, 'batch replace button reflects the selection');
 await batchReplace.element.props.onClick();
@@ -1445,6 +1464,10 @@ textareas(afterEmptyAgain.seen).at(-1).element.props.onKeyDown({
   preventDefault() {},
   currentTarget: { value: '', selectionStart: 0, selectionEnd: 0 },
 });
+const leavingEmpty = await renderRounds(1);
+assert.ok(leavingEmpty.seen.some(({ element }) => element.props?.['data-leaving'] === 'true'),
+  'Backspace deletion starts the same exit animation as the delete button');
+await settleLeave();
 const afterEmptyBackspace = await renderRounds(2);
 assert.equal(textareas(afterEmptyBackspace.seen).length, 2,
   'Backspace in an empty segment deletes it');

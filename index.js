@@ -38,7 +38,7 @@ import {
 const ROUTE = '/dsh-notepad/api';
 
 /** Plugin version mirrored in package.json. */
-const VERSION = '0.9.0';
+const VERSION = '0.9.1';
 
 /** Request body cap for note writes. */
 const BODY_LIMIT = 1024 * 1024;
@@ -226,15 +226,14 @@ async function listUnsentCounts(ctx) {
     const root = typeof workspace?.path === 'string' ? workspace.path : '';
     if (root === '') continue;
     let count = 0;
+    // `count` is exactly the number of unarchived, non-empty segments, so a
+    // workspace is offered by the header dropdown only when it has at least
+    // one pending card. Archived-only or blank notes stay hidden.
     let hasContent = false;
     try {
       const note = await readNote(root);
       count = unsentCount(note);
-      hasContent = Array.isArray(note.segments) && note.segments.some((segment) => {
-        const text = typeof segment?.text === 'string' ? segment.text : '';
-        const images = Array.isArray(segment?.images) ? segment.images : [];
-        return text.trim() !== '' || images.length > 0;
-      });
+      hasContent = count > 0;
     } catch {
       // A workspace directory may have disappeared; keep the other badges.
       count = 0;

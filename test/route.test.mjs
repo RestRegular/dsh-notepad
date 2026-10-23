@@ -347,6 +347,7 @@ test('DELETE image removes only files owned by the plugin directory', async (t) 
 test('GET unsent returns a pending count for every registered workspace', async (t) => {
   const rootA = await tempDir(t);
   const rootB = await tempDir(t);
+  const rootC = await tempDir(t);
   await writeNote(rootA, [
     { id: 'a', text: '待发一' },
     { id: 'b', text: '待发二' },
@@ -354,10 +355,14 @@ test('GET unsent returns a pending count for every registered workspace', async 
     { id: 'd', text: '   ' },
   ]);
   await writeNote(rootB, []);
+  await writeNote(rootC, [
+    { id: 'e', text: '只剩归档', archived: true, archivedAt: '2026-01-01T00:00:00.000Z' },
+  ]);
   const base = await serve(t, fakeContext({
     workspaces: [
       { id: 'ws-a', path: rootA, title: 'A' },
       { id: 'ws-b', path: rootB, title: 'B' },
+      { id: 'ws-c', path: rootC, title: 'C' },
     ],
   }));
   const response = await fetch(`${base}/dsh-notepad/api/unsent?sessionId=s1`);
@@ -366,11 +371,14 @@ test('GET unsent returns a pending count for every registered workspace', async 
   assert.deepEqual(body.workspaces.map((workspace) => [workspace.id, workspace.count]), [
     ['ws-a', 2],
     ['ws-b', 0],
+    ['ws-c', 0],
   ]);
   assert.equal(body.workspaces[0].path, rootA);
-  assert.equal(body.workspaces[0].hasContent, true, 'content workspaces are marked for the dropdown');
+  assert.equal(body.workspaces[0].hasContent, true, 'workspaces with active cards are marked for the dropdown');
   assert.equal(body.workspaces[1].hasContent, false, 'empty workspaces are not offered');
+  assert.equal(body.workspaces[2].hasContent, false, 'archived-only workspaces are not offered');
   assert.ok(!JSON.stringify(body).includes('待发'), 'counts never expose note text');
+  assert.ok(!JSON.stringify(body).includes('只剩归档'), 'counts never expose archived note text');
 });
 
 test('POST optimize rewrites one segment with the default model', async (t) => {

@@ -1,8 +1,8 @@
 # dsh-notepad
 
-在 DeepSeek Harness 的会话界面里放一张**属于当前工作区**的分段便签浮窗：一行一个问题、一段一个卡片，回车就能拆出下一段；需要时把某一段、或选中后的多段一起插入 / 替换 / 发送到对话框。除了文字，也可以直接**粘贴或选择图片**，输入框里会用缩略芯片显示并可点击预览。0.4 起支持选中、拖拽排序、合并多段；0.5 起空标题只在点击后显示输入框，方向键可切换分段，AI 优化只处理选中的分段并支持撤销 / 缓存；0.6 起插入 / 发送按钮 hover 时展开成「当前会话 / 新会话」按钮组，图片可在浮窗内预览，底部快捷键提示点击轮换，复制全部排除归档，发送行为跟随「设置 > 通用设置」的繁忙发送策略；0.7 起分段改为从上到下、旧→新排列，回车拆分的新卡片紧跟原卡片，段首 Backspace 与上一段合并，空分段按 Backspace 或点删除会直接移除，插入 / 发送 / 归档+删除按钮组会稍候再展开以避免快速划过闪烁，文本达到最大高度才出现滚动条，复位快捷键改为 `Ctrl/Cmd + Shift + R`。0.8 起设置面板新增「记事本」标签页（主题、毛玻璃、字体字号、自动 / 手动保存、撤销步数、提示词预设、按钮组与 hover 阈值、卡片最大高度、默认尺寸）；插件提供撤销 / 重做（输入框内仍是浏览器原生撤销）；分段可折叠、可批量归档 / 删除 / 复制；AI 在分段内有选中文字时只优化选中部分并在完成后重新选中；归档按最新在上并自动滚动；顶部工作区改为只列出有内容工作区的下拉列表；图片不显示名称，删除按钮移到缩略图右上角。0.9 起工具栏改为固定高度的横向滚动按钮列表（始终预留细滚动条位置，悬停加粗）；撤销 / 重做把输入文字也算进历史，不再吞掉文本；批量删除的按钮悬停变红；移除标题栏复位按钮；工作区下拉只保留存在非空分段的工作区；AI 预设提示词在只读文本框中展示；设置侧栏换成插件线条图标；主题配色同步作用于设置页；窗口设置可把当前面板位置和尺寸存为默认；AI 优化提高短内容输出预算并在空正文时自动用内置提示词重试一次。
+在 DeepSeek Harness 的会话界面里放一张**属于当前工作区**的分段便签浮窗：一行一个问题、一段一个卡片，回车就能拆出下一段；需要时把某一段、或选中后的多段一起插入 / 替换 / 发送到对话框。除了文字，也可以直接**粘贴或选择图片**，输入框里会用缩略芯片显示并可点击预览。0.4 起支持选中、拖拽排序、合并多段；0.5 起空标题只在点击后显示输入框，方向键可切换分段，AI 优化只处理选中的分段并支持撤销 / 缓存；0.6 起插入 / 发送按钮 hover 时展开成「当前会话 / 新会话」按钮组，图片可在浮窗内预览，底部快捷键提示点击轮换，复制全部排除归档，发送行为跟随「设置 > 通用设置」的繁忙发送策略；0.7 起分段改为从上到下、旧→新排列，回车拆分的新卡片紧跟原卡片，段首 Backspace 与上一段合并，空分段按 Backspace 或点删除会直接移除，插入 / 发送 / 归档+删除按钮组会稍候再展开以避免快速划过闪烁，文本达到最大高度才出现滚动条，复位快捷键改为 `Ctrl/Cmd + Shift + R`。0.8 起设置面板新增「记事本」标签页（主题、毛玻璃、字体字号、自动 / 手动保存、撤销步数、提示词预设、按钮组与 hover 阈值、卡片最大高度、默认尺寸）；插件提供撤销 / 重做（输入框内仍是浏览器原生撤销）；分段可折叠、可批量归档 / 删除 / 复制；AI 在分段内有选中文字时只优化选中部分并在完成后重新选中；归档按最新在上并自动滚动；顶部工作区改为只列出有内容工作区的下拉列表；图片不显示名称，删除按钮移到缩略图右上角。0.9 起撤销 / 重做把输入文字也算进历史，不再吞掉文本；批量删除的按钮悬停变红；移除标题栏复位按钮；工作区下拉只保留存在**未归档且非空**分段的工作区；AI 预设提示词在只读文本框中展示；设置侧栏换成插件线条图标；主题配色同步作用于设置页；窗口设置可把当前面板位置和尺寸存为默认；AI 优化提高短内容输出预算并在空正文时自动用内置提示词重试一次；工具栏改回单行不换行布局，按钮居右并压在左侧文本之下，溢出时被左侧元素遮盖而不是滚动；Backspace 删除空分段也会播放退出动画；按钮组在鼠标点击后移出会恢复折叠；批量操作时「取消选择」放在按钮栏最左侧。
 
-> A per-workspace floating segmented notepad for DeepSeek Harness sessions. Cards run oldest-to-newest; Enter splits after the source card and Backspace at the start merges into the previous card, while empty cards are removed by Backspace or the delete action without a prompt. An empty title is a blank click target, arrow keys move between cards, and AI improvement only touches the selected cards — the button toggles to undo and unchanged content reuses the cached answer. Hover groups wait briefly before opening: insert/send include current-session and new-session actions, archive+delete shares one group, and replace stays single. 0.8 adds a dedicated settings tab (themes, frosted glass, fonts, save mode, AI prompt presets, button groups, card height, geometry defaults), plugin undo/redo that never overrides textarea history, foldable cards with batch archive / delete / copy, selection-aware AI rewriting that re-selects its output, newest-first archives with auto-scroll, a workspace dropdown limited to workspaces with note content, and image chips whose remove button sits on the thumbnail corner. Image chips open an in-panel preview, the footer rotates shortcut tips, copy-all skips archived content, sending follows the General Settings busy-send policy, and the textarea only scrolls at its height limit. Auto refresh preserves the list scroll position, `Ctrl/Cmd + Shift + R` resets the geometry, the panel never covers the host title bar, and notes live in `<workspace>/.dsh/notepad.json` shared by every session from that workspace.
+> A per-workspace floating segmented notepad for DeepSeek Harness sessions. Cards run oldest-to-newest; Enter splits after the source card and Backspace at the start merges into the previous card, while empty cards are removed by Backspace or the delete action without a prompt. An empty title is a blank click target, arrow keys move between cards, and AI improvement only touches the selected cards — the button toggles to undo and unchanged content reuses the cached answer. Hover groups wait briefly before opening: insert/send include current-session and new-session actions, archive+delete shares one group, and replace stays single. 0.8 adds a dedicated settings tab (themes, frosted glass, fonts, save mode, AI prompt presets, button groups, card height, geometry defaults), plugin undo/redo that never overrides textarea history, foldable cards with batch archive / delete / copy, selection-aware AI rewriting that re-selects its output, newest-first archives with auto-scroll, a workspace dropdown limited to workspaces with an unarchived non-empty segment, and image chips whose remove button sits on the thumbnail corner. The action bar is a single non-wrapping row: the left-hand selection label sits above right-aligned buttons, so overflow slides underneath instead of scrolling; mouse-clicking a group releases focus so it collapses when the pointer leaves. Backspace deletion of an empty card uses the same exit animation as the delete button, and batch selection puts Cancel selection leftmost. Image chips open an in-panel preview, the footer rotates shortcut tips, copy-all skips archived content, sending follows the General Settings busy-send policy, and the textarea only scrolls at its height limit. Auto refresh preserves the list scroll position, `Ctrl/Cmd + Shift + R` resets the geometry, the panel never covers the host title bar, and notes live in `<workspace>/.dsh/notepad.json` shared by every session from that workspace.
 
 ## 安装
 
@@ -30,7 +30,7 @@ dsh plugin --profile web add @restregular/dsh-notepad
 └────────────────────────────────────────────┘
 ```
 
-- **顶部工作区**：工作区名是一个自定义下拉列表，只列出**有记事本内容**的工作区；点选后会切到该工作区的新会话，浮窗随即加载对应工作区的笔记。
+- **顶部工作区**：工作区名是一个自定义下拉列表，只列出**存在未归档且非空分段**的工作区；点选后会切到该工作区的新会话，浮窗随即加载对应工作区的笔记。
 - **排列方向**：卡片从上到下按旧分段到新分段排列；`+` 新建的分段追加在列表底部，拖拽后按你的顺序保存。
 - **折叠分段**：序号左边的 `▾ / ▸` 是折叠按钮，折叠后只保留卡片头和一行预览；工具栏的「全部展开 / 全部折叠」也是按钮组。
 - **选择分段**：点击序号选中 / 取消，选中卡片用强调色边框和浅底色区分；顶部「全选」一次选中所有活动分段。不再使用勾选框。
@@ -41,9 +41,9 @@ dsh plugin --profile web add @restregular/dsh-notepad
   - 插入 / 发送组：当前会话 + 在同一工作区新会话中执行，两种新会话图标不同；
   - 归档+删除组：归档（主按钮）+ 删除（悬停后出现的危险按钮，活动分段批量选择时即批量删除）；
   - 替换按钮保持单键。
-- **可横向滚动的按钮栏**：工具栏是一行横向滚动列表，不再换行；始终预留 7px 的滚动条位置，滚动条初始较细、鼠标悬停时略微变粗，出现 / 隐藏时不会让按钮栏上下跳动。
+- **按钮栏**：工具栏是一行不换行的布局。左侧「全选 / 已选 N 段」文本在上层并带不透明底色，右侧操作按钮整体右对齐、层级更低；按钮宽度超出时从左侧滑到文本下方并被遮住，不滚动、不换行。按钮组被鼠标点击后释放焦点，鼠标移出即恢复折叠。
 - **回车拆分**：在分段中按回车会从光标处拆开，新卡片**紧跟原卡片下方**；在末尾回车就是在该段后面新建一个空分段。
-- **Backspace 合并 / 删除**：光标在段首按 `Backspace` 会与上一段合并；如果当前段完全为空（无标题、无文字、无图片），则直接删除该段，不弹确认框。删除按钮对空分段同样跳过确认。
+- **Backspace 合并 / 删除**：光标在段首按 `Backspace` 会与上一段合并；如果当前段完全为空（无标题、无文字、无图片），则播放与删除按钮相同的退出动画后再删除，不弹确认框。删除按钮对空分段同样跳过确认。
 - **撤销 / 重做**：`Ctrl/Cmd + Z` 与 `Ctrl/Cmd + Shift + Z`。输入框内的撤销仍由浏览器原生处理，插件绝不再拦一次；拆分、合并、归档、恢复、排序、批量操作、AI 优化等由插件记录，最多 50 步（可调），切换工作区或外部内容刷新时丢弃历史。工具栏另有撤销 / 重做按钮，AI 优化按钮自己的「撤销优化」继续保留。
 - **图片预览**：点击任意图片缩略图会在浮窗内打开预览（带「打开原图」和关闭按钮），点击遮罩或按 `Esc` 关闭。图片芯片不再显示文件名，右上角的 `×` 用于移除引用。
 - **删除分段**：非空分段的删除按钮位于归档+删除按钮组的展开项中，点击后弹窗二次确认，并明确提示删除后无法恢复；确认后播放消失动画再移除，不进入归档。
@@ -81,7 +81,7 @@ dsh plugin --profile web add @restregular/dsh-notepad
 | 新建分段 | 标题栏 `+`，或分段末尾按回车 | 新卡片追加在列表底部（旧→新），并自动获得焦点 |
 | 回车拆分 | 分段文本内按 `Enter` | 从光标处拆开，新卡片紧跟当前卡片下方 |
 | Backspace 合并 | 光标在分段最前面按 `Backspace` | 与上一张卡片合并，光标停在新旧文字交界处 |
-| 空分段删除 | 空分段内按 `Backspace`，或空分段的删除按钮 | 无标题、无文字、无图片时直接删除，不弹确认 |
+| 空分段删除 | 空分段内按 `Backspace`，或空分段的删除按钮 | 无标题、无文字、无图片时跳过确认，并播放退出动画后删除 |
 | 编辑分段 | 点击卡片文本区 | 自动模式下停止输入约 0.5 秒后保存；手动模式下等保存按钮 / `Ctrl+S` |
 | 分段标题 | 空标题的空白点击区 / 已有标题的输入框 | 空标题不显示文字和 hover 效果，点击后才出现输入框；保存方式同上 |
 | 选中分段 | 点击左上角序号 | 卡片的强调色边框表示已选；再点一次取消，选中的段参与批量操作 |
@@ -111,13 +111,13 @@ dsh plugin --profile web add @restregular/dsh-notepad
 | 归档 | 卡片上归档+删除按钮组的主按钮，或工具栏归档图标 | 把分段移入归档区（不发送）；可批量归档选中分段 |
 | 显示 / 隐藏归档 | 标题栏归档图标 | 展开 / 收起归档区，状态按浏览器记忆；**最新归档排在最上面**，展开时自动滚到第一条 |
 | 恢复 | 归档卡片上的恢复图标 | 把归档分段放回未归档列表 |
-| 删除（未归档） | 归档+删除按钮组中 hover 出现的垃圾桶 | 空分段直接删除；非空分段弹窗二次确认并提示 **删除后无法恢复**；播放消失动画后移除 |
+| 删除（未归档） | 归档+删除按钮组中 hover 出现的垃圾桶 | 空分段跳过确认；非空分段弹窗二次确认并提示 **删除后无法恢复**；播放消失动画后移除 |
 | 批量删除 | 选中分段 → 工具栏归档组里 hover 出现的垃圾桶 | 二次确认后删除选中的活动分段，不可撤销 |
 | 删除（已归档） | 归档卡片上的垃圾桶 | 删除归档分段，可撤销 |
 | 清空归档 | 归档区标题「清空归档」 | 批量删除归档，可撤销 |
 | 复制此段 | 卡片头部的复制按钮 | 把这一段文字与图片引用合并后写入剪贴板 |
 | 复制选中的 N 段 | 选中分段 → 工具栏复制按钮 | 按卡片顺序用空行合并后复制；复制全部仍只包含未归档分段 |
-| 切换工作区 | 标题栏工作区下拉列表 | 只列出有记事本内容的工作区；点选后打开该工作区的新会话并加载对应笔记 |
+| 切换工作区 | 标题栏工作区下拉列表 | 只列出存在未归档且非空分段的工作区；点选后打开该工作区的新会话并加载对应笔记 |
 | 快捷键提示 | 底部的一条提示文字 | 点击轮换显示下一条快捷键说明 |
 | 发送策略 | 卡片 / 工具栏发送按钮 | 繁忙时按「设置 > 通用设置 > 繁忙时的发送行为」选择排队或插话 |
 | 滚动条 | 分段文本达到设置里的最大高度后 | 未到上限不显示纵向滚动条，超过后才出现；默认 240px |
@@ -206,7 +206,7 @@ node test/package.test.mjs
 npm test
 ```
 
-`test/client-smoke.mjs` 会真正执行 `apply(ctx)` 并渲染浮窗与设置页，覆盖：分段加载、编辑自动保存、手动保存模式与保存按钮、自动刷新保持列表滚动位置、设置 toggle / 自定义下拉 / 快捷键录制与恢复默认 / 主题（同时作用于浮窗和设置页）/ 字号 / 按钮组模式 / hover 阈值显隐 / 预设提示词只读展示与自定义切换 / 将当前几何设为默认、插件撤销 / 重做与输入框原生撤销的边界（含输入文字不被撤销吞掉）、分段折叠与全部展开 / 折叠、单段 / 选中复制、工作区下拉（只列有非空分段的工作区）与切换新会话、归档最新在上 / 自动滚动 / 退出动画、横向滚动按钮栏与危险按钮 hover 配色、设置侧栏线条图标、新分段追加到底部、空标题空白点击区与点击后出现输入框、标题自动保存、序号选中、方向键跨分段切换光标、段首 Backspace 合并上一段、空分段 Backspace / 删除按钮无确认删除、回车拆分后新卡片紧跟原卡片、文本区未到高度上限不显示滚动条、合并、单段 / 选中分段 AI 优化与段内选中文字优化、优化后按钮切换为撤销、相同内容命中缓存、插入 / 发送 / 归档+删除 hover 按钮组（含延迟 CSS 与新会话图标区分）与在新会话中插入 / 发送、图片面板内预览、非空删除的二次确认与不可撤销、底部快捷键轮换、复制全部排除归档、繁忙发送策略、拖拽排序、未发送角标、侧边栏工作区角标、单段/多段插入与替换、单段/多段发送与自动归档、归档显示隐藏、归档恢复与删除（含撤销）、全选、窗口折叠、最小化 / 恢复、拖动调整尺寸、标题栏下方位置限制、全局快捷键与 `Ctrl+Shift+R` 复位（标题栏不再有复位按钮）、DSH `shortcuts` 五个命令注册、深色模式与设置 CSS、重复执行 bundle 的兼容性，以及粘贴 / 选择图片、图片芯片、删除芯片时清理磁盘文件与带图插入发送。
+`test/client-smoke.mjs` 会真正执行 `apply(ctx)` 并渲染浮窗与设置页，覆盖：分段加载、编辑自动保存、手动保存模式与保存按钮、自动刷新保持列表滚动位置、设置 toggle / 自定义下拉 / 快捷键录制与恢复默认 / 主题（同时作用于浮窗和设置页）/ 字号 / 按钮组模式 / hover 阈值显隐 / 预设提示词只读展示与自定义切换 / 将当前几何设为默认、插件撤销 / 重做与输入框原生撤销的边界（含输入文字不被撤销吞掉）、分段折叠与全部展开 / 折叠、单段 / 选中复制、工作区下拉（只列存在未归档且非空分段的工作区）与切换新会话、归档最新在上 / 自动滚动 / 退出动画（含 Backspace 删除空分段）、右对齐且不换行的按钮栏、按钮组点击后失焦折叠、批量选择时最左侧的「取消选择」与危险按钮 hover 配色、设置侧栏线条图标、新分段追加到底部、空标题空白点击区与点击后出现输入框、标题自动保存、序号选中、方向键跨分段切换光标、段首 Backspace 合并上一段、空分段 Backspace / 删除按钮无确认删除、回车拆分后新卡片紧跟原卡片、文本区未到高度上限不显示滚动条、合并、单段 / 选中分段 AI 优化与段内选中文字优化、优化后按钮切换为撤销、相同内容命中缓存、插入 / 发送 / 归档+删除 hover 按钮组（含延迟 CSS 与新会话图标区分）与在新会话中插入 / 发送、图片面板内预览、非空删除的二次确认与不可撤销、底部快捷键轮换、复制全部排除归档、繁忙发送策略、拖拽排序、未发送角标、侧边栏工作区角标、单段/多段插入与替换、单段/多段发送与自动归档、归档显示隐藏、归档恢复与删除（含撤销）、全选、窗口折叠、最小化 / 恢复、拖动调整尺寸、标题栏下方位置限制、全局快捷键与 `Ctrl+Shift+R` 复位（标题栏不再有复位按钮）、DSH `shortcuts` 五个命令注册、深色模式与设置 CSS、重复执行 bundle 的兼容性，以及粘贴 / 选择图片、图片芯片、删除芯片时清理磁盘文件与带图插入发送。
 
 ## 已知限制
 

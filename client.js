@@ -434,7 +434,7 @@ window.__ModuleLoader__.load({
         copyFailed: '复制失败',
         selectAll: '全选',
         clearSelection: '取消选择',
-        selectHint: '点击序号选择分段',
+        selectHint: '全选',
         selected: '已选 {n} 段',
         selectSegment: '选择此段',
         merge: '合并分段',
@@ -659,7 +659,7 @@ window.__ModuleLoader__.load({
         copyFailed: 'Copy failed',
         selectAll: 'Select all',
         clearSelection: 'Clear selection',
-        selectHint: 'Click an index to select',
+        selectHint: 'Select all',
         selected: '{n} selected',
         selectSegment: 'Select this segment',
         merge: 'Merge segments',
@@ -1365,14 +1365,11 @@ window.__ModuleLoader__.load({
 .dsh-np-btn:focus-visible,.dsh-np-segbtn:focus-visible,.dsh-np-link:focus-visible,.dsh-np-empty-add:focus-visible,.dsh-np-toast-action:focus-visible,.dsh-np-selectall input:focus-visible,.dsh-np-check input:focus-visible,.dsh-np-title-add:focus-visible,.dsh-np-preview-btn:focus-visible,.dsh-np-confirm-btn:focus-visible,button.dsh-np-hint:focus-visible,.dsh-np-restore:focus-visible,.dsh-np-img-open:focus-visible,.dsh-np-img-remove:focus-visible{outline:2px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#4176e6));outline-offset:-2px}
 .dsh-np-body{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;padding:8px 10px 0;opacity:1;transition:opacity .16s ease,visibility 0s linear 0s}
 .dsh-np-card[data-minimized=true] .dsh-np-body{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .16s ease,visibility 0s linear .16s}
-.dsh-np-tools{display:flex;align-items:flex-start;flex-wrap:nowrap;gap:4px;flex:none;height:35px;box-sizing:border-box;padding:0 2px;border-bottom:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08));overflow-x:auto;overflow-y:hidden;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-scrollbar-bg-l2,rgb(15 23 42/.22)) transparent}
-.dsh-np-tools::-webkit-scrollbar{height:7px;background:transparent}
-.dsh-np-tools::-webkit-scrollbar-track{background:transparent}
-.dsh-np-tools::-webkit-scrollbar-thumb{background:var(--dsw-alias-scrollbar-bg-l2,rgb(15 23 42/.22));border:2px solid transparent;background-clip:content-box;border-radius:999px}
-.dsh-np-tools:hover::-webkit-scrollbar-thumb{border-width:1px;background:var(--dsw-alias-scrollbar-hover-l2,rgb(15 23 42/.36));background-clip:content-box}
-.dsh-np-tools>*{flex:none}
-.dsh-np-tools>.dsh-np-spacer{flex:1 1 0;min-width:8px}
-.dsh-np-selectall{display:inline-flex;align-items:center;gap:6px;min-width:0;cursor:pointer;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11px;white-space:nowrap}
+.dsh-np-tools{position:relative;display:flex;align-items:center;flex:none;height:33px;box-sizing:border-box;padding:0 2px;border-bottom:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08));overflow:hidden}
+.dsh-np-toolbar-actions{position:absolute;right:2px;top:50%;transform:translateY(-50%);z-index:1;display:flex;align-items:center;flex-wrap:nowrap;gap:4px;max-width:none}
+.dsh-np-toolbar-actions>*{flex:none}
+.dsh-np-selectall{position:relative;z-index:2;align-self:stretch;display:inline-flex;align-items:center;gap:6px;min-width:0;padding:0 14px 0 2px;cursor:pointer;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11px;white-space:nowrap;background:var(--dsw-alias-bg-layer-1,#fff)}
+.dsh-np-selectall::after{content:"";position:absolute;right:-12px;top:0;bottom:0;width:12px;background:linear-gradient(90deg,var(--dsw-alias-bg-layer-1,#fff),transparent);pointer-events:none}
 .dsh-np-selectall input{width:14px;height:14px;margin:0;accent-color:var(--np-accent);cursor:pointer;flex:none}
 .dsh-np-selectall input:disabled{cursor:default;opacity:.45}
 .dsh-np-selcount{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px}
@@ -2284,6 +2281,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const historyApplyingRef = useRef(false);
       const textHistoryRef = useRef(null);
       const leaveTimersRef = useRef(new Set());
+      const leavingIdsRef = useRef(new Set());
       const archiveListRef = useRef(null);
       const wsWrapRef = useRef(null);
       const textareaSettersRef = useRef(new Map());
@@ -2523,6 +2521,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       useEffect(() => () => {
         for (const timer of leaveTimersRef.current) clearTimeout(timer);
         leaveTimersRef.current.clear();
+        leavingIdsRef.current.clear();
         if (textHistoryRef.current !== null && textHistoryRef.current.timer) {
           clearTimeout(textHistoryRef.current.timer);
         }
@@ -2760,6 +2759,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         }
         for (const timer of leaveTimersRef.current) clearTimeout(timer);
         leaveTimersRef.current.clear();
+        leavingIdsRef.current.clear();
         setLeaving(new Map());
         rootRef.current = root;
         rootSessionRef.current = binding.id;
@@ -3381,8 +3381,9 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
        */
       const scheduleLeave = (ids, kind, run) => {
         const list = [...new Set(Array.isArray(ids) ? ids : [ids])]
-          .filter((id) => typeof id === 'string' && id !== '');
+          .filter((id) => typeof id === 'string' && id !== '' && !leavingIdsRef.current.has(id));
         if (list.length === 0) return;
+        for (const id of list) leavingIdsRef.current.add(id);
         setLeaving((previous) => {
           const next = new Map(previous);
           for (const id of list) next.set(id, kind);
@@ -3390,6 +3391,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         });
         const timer = setTimeout(() => {
           leaveTimersRef.current.delete(timer);
+          for (const id of list) leavingIdsRef.current.delete(id);
           setLeaving((previous) => {
             const next = new Map(previous);
             for (const id of list) next.delete(id);
@@ -4307,20 +4309,24 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
 
       /** Remove a content-empty segment and keep a nearby typing surface. */
       const deleteEmptySegment = (id, previous, next) => {
-        const remaining = segmentsRef.current.filter((segment) => segment.id !== id);
-        const activeRemaining = remaining.filter((segment) => segment.archived !== true);
-        if (activeRemaining.length === 0) {
-          const fresh = newSegment('');
-          commitSegments([fresh], { focus: { id: fresh.id, caret: 0 } });
-          return;
-        }
-        const focus = previous ?? next;
-        if (focus === undefined) {
-          commitSegments(remaining);
-          return;
-        }
-        const caret = previous !== undefined ? previous.text.length : 0;
-        commitSegments(remaining, { focus: { id: focus.id, caret } });
+        // Backspace deletion goes through the same leave animation as the
+        // delete button so the card does not disappear abruptly.
+        scheduleLeave([id], 'delete', () => {
+          const remaining = segmentsRef.current.filter((segment) => segment.id !== id);
+          const activeRemaining = remaining.filter((segment) => segment.archived !== true);
+          if (activeRemaining.length === 0) {
+            const fresh = newSegment('');
+            commitSegments([fresh], { focus: { id: fresh.id, caret: 0 } });
+            return;
+          }
+          const focus = previous ?? next;
+          if (focus === undefined) {
+            commitSegments(remaining);
+            return;
+          }
+          const caret = previous !== undefined ? previous.text.length : 0;
+          commitSegments(remaining, { focus: { id: focus.id, caret } });
+        });
       };
 
       /** Backspace at position 0 joins this segment onto the previous card. */
@@ -4391,6 +4397,11 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           const previous = position > 0 ? active[position - 1] : undefined;
           if (isEmptySegment(current)) {
             event.preventDefault?.();
+            try {
+              event.currentTarget?.blur?.();
+            } catch {
+              /* A non-layout shim may not expose blur. */
+            }
             deleteEmptySegment(current.id, previous, active[position + 1]);
             return;
           }
@@ -4502,8 +4513,9 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       // Only workspaces whose note actually contains a non-empty segment.
       const workspaceItems = wsList.filter((workspace) => workspace.hasContent === true);
       const liveCurrentHasContent = segments.some((segment) =>
-        (typeof segment.text === 'string' && segment.text.trim() !== '')
-        || (Array.isArray(segment.images) && segment.images.length > 0));
+        segment.archived !== true
+        && ((typeof segment.text === 'string' && segment.text.trim() !== '')
+          || (Array.isArray(segment.images) && segment.images.length > 0)));
       if (liveCurrentHasContent && !workspaceItems.some((workspace) => normalizedCwd(workspace.path) === currentPath)) {
         workspaceItems.unshift({
           id: currentWsId,
@@ -4664,7 +4676,27 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           title: primary.title,
           'aria-label': primary.title,
           disabled,
-          onClick: primary.onClick,
+          onClick: (event) => {
+            const result = primary.onClick?.(event);
+            if (event?.detail > 0) {
+              try {
+                event?.currentTarget?.blur?.();
+              } catch {
+                /* ignore */
+              }
+            }
+            return result;
+          },
+          onPointerUp: (event) => {
+            // A mouse click leaves focus on the button, and :focus-within kept
+            // the group expanded after the pointer left. Keyboard activation
+            // fires no pointerup, so it keeps its focused/open behavior.
+            try {
+              event?.currentTarget?.blur?.();
+            } catch {
+              /* ignore */
+            }
+          },
         };
         if (primary.accent === true) primaryProps['data-accent'] = 'true';
         const extraProps = {
@@ -4673,7 +4705,24 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           title: extra.title,
           'aria-label': extra.title,
           disabled,
-          onClick: extra.onClick,
+          onClick: (event) => {
+            const result = extra.onClick?.(event);
+            if (event?.detail > 0) {
+              try {
+                event?.currentTarget?.blur?.();
+              } catch {
+                /* ignore */
+              }
+            }
+            return result;
+          },
+          onPointerUp: (event) => {
+            try {
+              event?.currentTarget?.blur?.();
+            } catch {
+              /* ignore */
+            }
+          },
         };
         if (extra.danger === true) extraProps['data-danger'] = 'true';
         return h(
@@ -4704,179 +4753,182 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           h('span', { className: 'dsh-np-selcount' },
             selectedCount > 0 ? t('selected', { n: selectedCount }) : t('selectHint')),
         ),
-        h('span', { className: 'dsh-np-spacer' }),
-        settings.saveMode === 'manual'
-          ? h(
-              'button',
-              {
-                type: 'button',
-                className: 'dsh-np-btn',
-                title: `${t('saveNowHint')} · ${settings.shortcuts.save}`,
-                'aria-label': t('saveNow'),
-                disabled: status === 'loading' || status === 'saving',
-                onClick: manualSave,
-              },
-              h(SaveIcon, { size: 14 }),
-            )
-          : null,
-        actionGroup({
-          size: 'bar',
-          primary: {
-            title: t('expandAll'),
-            onClick: expandAllSegments,
-            icon: h(ChevronsExpandIcon, { size: 14 }),
-          },
-          extra: {
-            title: t('collapseAll'),
-            onClick: collapseAllSegments,
-            icon: h(ChevronsCollapseIcon, { size: 14 }),
-          },
-        }),
         h(
-          'button',
-          {
-            type: 'button',
-            className: 'dsh-np-btn',
-            title: `${t('undo')} · ${settings.shortcuts.undo}`,
-            'aria-label': t('undo'),
-            disabled: !canUndo,
-            onClick: () => applyHistory('undo'),
-          },
-          h(UndoIcon, { size: 14 }),
-        ),
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'dsh-np-btn',
-            title: `${t('redo')} · ${settings.shortcuts.redo}`,
-            'aria-label': t('redo'),
-            disabled: !canRedo,
-            onClick: () => applyHistory('redo'),
-          },
-          h(RedoIcon, { size: 14 }),
-        ),
-        selectedCount > 0
-          ? h(
-              'button',
-              {
-                type: 'button',
-                className: 'dsh-np-btn',
-                title: t('copySelected', { n: selectedCount }),
-                'aria-label': t('copySelected', { n: selectedCount }),
-                disabled: activeHasContent !== true,
-                onClick: copySelectedSegments,
-              },
-              h(CopyIcon, { size: 14 }),
-            )
-          : null,
-        actionGroup({
-          size: 'bar',
-          disabled: selectedCount === 0,
-          primary: {
-            title: selectedCount > 0 ? t('insertSelected', { n: selectedCount }) : t('insert'),
-            onClick: () => insertSegments(selectedActive),
-            icon: h(InsertIcon, { size: 14 }),
-          },
-          extra: {
-            title: selectedCount > 0 ? t('insertNewSelected', { n: selectedCount }) : t('insertNewSession'),
-            onClick: () => insertNewSession(selectedActive),
-            icon: h(NewSessionIcon, { size: 14 }),
-          },
-        }),
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'dsh-np-btn',
-            title: selectedCount > 0 ? t('replaceSelected', { n: selectedCount }) : t('replace'),
-            'aria-label': t('replace'),
+          'div',
+          { className: 'dsh-np-toolbar-actions' },
+          selectedCount > 0
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-np-btn',
+                  title: t('clearSelection'),
+                  'aria-label': t('clearSelection'),
+                  onClick: () => setSelection(new Set()),
+                },
+                h(CloseIcon, { size: 13 }),
+              )
+            : null,
+          settings.saveMode === 'manual'
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-np-btn',
+                  title: `${t('saveNowHint')} · ${settings.shortcuts.save}`,
+                  'aria-label': t('saveNow'),
+                  disabled: status === 'loading' || status === 'saving',
+                  onClick: manualSave,
+                },
+                h(SaveIcon, { size: 14 }),
+              )
+            : null,
+          actionGroup({
+            size: 'bar',
+            primary: {
+              title: t('expandAll'),
+              onClick: expandAllSegments,
+              icon: h(ChevronsExpandIcon, { size: 14 }),
+            },
+            extra: {
+              title: t('collapseAll'),
+              onClick: collapseAllSegments,
+              icon: h(ChevronsCollapseIcon, { size: 14 }),
+            },
+          }),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-np-btn',
+              title: `${t('undo')} · ${settings.shortcuts.undo}`,
+              'aria-label': t('undo'),
+              disabled: !canUndo,
+              onClick: () => applyHistory('undo'),
+            },
+            h(UndoIcon, { size: 14 }),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-np-btn',
+              title: `${t('redo')} · ${settings.shortcuts.redo}`,
+              'aria-label': t('redo'),
+              disabled: !canRedo,
+              onClick: () => applyHistory('redo'),
+            },
+            h(RedoIcon, { size: 14 }),
+          ),
+          selectedCount > 0
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-np-btn',
+                  title: t('copySelected', { n: selectedCount }),
+                  'aria-label': t('copySelected', { n: selectedCount }),
+                  disabled: activeHasContent !== true,
+                  onClick: copySelectedSegments,
+                },
+                h(CopyIcon, { size: 14 }),
+              )
+            : null,
+          actionGroup({
+            size: 'bar',
             disabled: selectedCount === 0,
-            onClick: () => replaceSegments(selectedActive),
-          },
-          h(ReplaceIcon, { size: 14 }),
-        ),
-        actionGroup({
-          size: 'bar',
-          disabled: selectedCount === 0 || sending,
-          primary: {
-            title: selectedCount > 0
-              ? (sending ? t('sending') : t('sendSelected', { n: selectedCount }))
-              : t('send'),
-            onClick: () => sendSegments(selectedActive),
-            icon: h(SendIcon, { size: 14 }),
-            accent: true,
-          },
-          extra: {
-            title: selectedCount > 0 ? t('sendNewSelected', { n: selectedCount }) : t('sendNewSession'),
-            onClick: () => sendNewSession(selectedActive),
-            icon: h(NewSessionSendIcon, { size: 14 }),
-          },
-        }),
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'dsh-np-btn',
-            title: selectedCount > 1 ? t('mergeSelected', { n: selectedCount }) : t('mergeHint'),
-            'aria-label': t('merge'),
-            disabled: selectedCount < 2,
-            onClick: mergeSelected,
-          },
-          h(MergeIcon, { size: 14 }),
-        ),
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'dsh-np-btn',
-            'data-active': optimizeBatch !== null || batchUndo !== null ? 'true' : 'false',
-            title: optimizeBatch !== null
-              ? t('optimizeAllProgress', { done: optimizeBatch.done, total: optimizeBatch.total })
-              : batchUndo !== null
+            primary: {
+              title: selectedCount > 0 ? t('insertSelected', { n: selectedCount }) : t('insert'),
+              onClick: () => insertSegments(selectedActive),
+              icon: h(InsertIcon, { size: 14 }),
+            },
+            extra: {
+              title: selectedCount > 0 ? t('insertNewSelected', { n: selectedCount }) : t('insertNewSession'),
+              onClick: () => insertNewSession(selectedActive),
+              icon: h(NewSessionIcon, { size: 14 }),
+            },
+          }),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-np-btn',
+              title: selectedCount > 0 ? t('replaceSelected', { n: selectedCount }) : t('replace'),
+              'aria-label': t('replace'),
+              disabled: selectedCount === 0,
+              onClick: () => replaceSegments(selectedActive),
+            },
+            h(ReplaceIcon, { size: 14 }),
+          ),
+          actionGroup({
+            size: 'bar',
+            disabled: selectedCount === 0 || sending,
+            primary: {
+              title: selectedCount > 0
+                ? (sending ? t('sending') : t('sendSelected', { n: selectedCount }))
+                : t('send'),
+              onClick: () => sendSegments(selectedActive),
+              icon: h(SendIcon, { size: 14 }),
+              accent: true,
+            },
+            extra: {
+              title: selectedCount > 0 ? t('sendNewSelected', { n: selectedCount }) : t('sendNewSession'),
+              onClick: () => sendNewSession(selectedActive),
+              icon: h(NewSessionSendIcon, { size: 14 }),
+            },
+          }),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-np-btn',
+              title: selectedCount > 1 ? t('mergeSelected', { n: selectedCount }) : t('mergeHint'),
+              'aria-label': t('merge'),
+              disabled: selectedCount < 2,
+              onClick: mergeSelected,
+            },
+            h(MergeIcon, { size: 14 }),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-np-btn',
+              'data-active': optimizeBatch !== null || batchUndo !== null ? 'true' : 'false',
+              title: optimizeBatch !== null
+                ? t('optimizeAllProgress', { done: optimizeBatch.done, total: optimizeBatch.total })
+                : batchUndo !== null
+                  ? t('undoOptimize')
+                  : selectedCount > 0
+                    ? t('optimizeSelected', { n: selectedCount })
+                    : t('optimizeSelectHint'),
+              'aria-label': batchUndo !== null
                 ? t('undoOptimize')
-                : selectedCount > 0
-                  ? t('optimizeSelected', { n: selectedCount })
-                  : t('optimizeSelectHint'),
-            'aria-label': batchUndo !== null
-              ? t('undoOptimize')
-              : selectedCount > 0 ? t('optimizeSelected', { n: selectedCount }) : t('optimizeSelectHint'),
-            disabled: optimizeBatch !== null
-              || (batchUndo === null && selectedCount === 0),
-            onClick: batchUndo !== null ? undoBatchOptimization : optimizeSelectedSegments,
-          },
-          optimizeBatch !== null
-            ? h('span', { className: 'dsh-np-mini-spinner' })
-            : batchUndo !== null ? h(UndoIcon, { size: 14 }) : h(SparkleIcon, { size: 14 }),
+                : selectedCount > 0 ? t('optimizeSelected', { n: selectedCount }) : t('optimizeSelectHint'),
+              disabled: optimizeBatch !== null
+                || (batchUndo === null && selectedCount === 0),
+              onClick: batchUndo !== null ? undoBatchOptimization : optimizeSelectedSegments,
+            },
+            optimizeBatch !== null
+              ? h('span', { className: 'dsh-np-mini-spinner' })
+              : batchUndo !== null ? h(UndoIcon, { size: 14 }) : h(SparkleIcon, { size: 14 }),
+          ),
+          actionGroup({
+            size: 'bar',
+            disabled: selectedCount === 0,
+            primary: {
+              title: selectedCount > 0 ? t('archiveSelected', { n: selectedCount }) : t('archive'),
+              onClick: archiveSelected,
+              icon: h(ArchiveIcon, { size: 14 }),
+            },
+            extra: {
+              title: selectedCount > 0 ? t('deleteSelected', { n: selectedCount }) : t('batchDelete'),
+              danger: true,
+              onClick: () => setDeleteConfirm('batch'),
+              icon: h(TrashIcon, { size: 14 }),
+            },
+          }),
         ),
-        actionGroup({
-          size: 'bar',
-          disabled: selectedCount === 0,
-          primary: {
-            title: selectedCount > 0 ? t('archiveSelected', { n: selectedCount }) : t('archive'),
-            onClick: archiveSelected,
-            icon: h(ArchiveIcon, { size: 14 }),
-          },
-          extra: {
-            title: selectedCount > 0 ? t('deleteSelected', { n: selectedCount }) : t('batchDelete'),
-            danger: true,
-            onClick: () => setDeleteConfirm('batch'),
-            icon: h(TrashIcon, { size: 14 }),
-          },
-        }),
-        selectedCount > 0
-          ? h(
-              'button',
-              {
-                type: 'button',
-                className: 'dsh-np-btn',
-                title: t('clearSelection'),
-                'aria-label': t('clearSelection'),
-                onClick: () => setSelection(new Set()),
-              },
-              h(CloseIcon, { size: 13 }),
-            )
-          : null,
       );
 
       const totalImages = segments.reduce(
