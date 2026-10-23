@@ -604,7 +604,10 @@ assert.ok(styleTags[0].textContent.includes('.dsh-np-toolbar-actions') && styleT
   'the action buttons sit below the left-hand text');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-selectall{position:relative;z-index:2'),
   'the select-all text covers overflowing actions');
-assert.ok(styleTags[0].textContent.includes('overflow:hidden'), 'the button bar clips overflow instead of scrolling');
+assert.ok(styleTags[0].textContent.includes('border-bottom:1px solid var(--dsw-alias-border-l1') && styleTags[0].textContent.includes('overflow:hidden'),
+  'the button bar clips overflow instead of scrolling');
+assert.ok(styleTags[0].textContent.includes('padding:14px 2px 8px 0'),
+  'the first card keeps padding below the action bar');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-btn[data-danger=true]:hover'),
   'the toolbar danger item turns red on hover');
 assert.deepEqual(localeRegistered.map((entry) => entry.namespace), ['dsh-notepad']);
