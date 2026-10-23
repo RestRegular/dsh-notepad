@@ -3,19 +3,27 @@
  *
  * Stores one plain-text note per workspace in `<workspace>/.dsh/notepad.json`
  * and exposes it to the same-origin browser overlay through the loopback route
- * `/dsh-notepad/api/note`.
+ * `/dsh-notepad/api/note`. Pasted images are written to the plugin-owned
+ * directory `<workspace>/.dsh/notepad/images/` through `/dsh-notepad/api/image`.
  *
  * Security:
  *   - only loopback requests with a same-origin (or absent) Origin are served;
  *   - the resolved root must be a registered workspace or the exact cwd of the
  *     requesting session;
- *   - the file path itself is fixed (`.dsh/notepad.json`), so the route cannot
- *     be used to read or write arbitrary workspace files.
+ *   - the file paths themselves are fixed (`.dsh/notepad.json` and the image
+ *     directory), so the route cannot be used to read or write arbitrary
+ *     workspace files. Image uploads must be a supported raster format whose
+ *     bytes match the declared MIME type.
  *
  * @module dsh-notepad
  */
 
 import path from 'node:path';
+import {
+  IMAGE_TYPES,
+  MAX_IMAGE_BYTES,
+  saveClipboardImage,
+} from './lib/image-store.js';
 import {
   DEFAULT_MAX_BYTES,
   NOTE_VERSION,
@@ -28,10 +36,13 @@ import {
 const ROUTE = '/dsh-notepad/api';
 
 /** Plugin version mirrored in package.json. */
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 
-/** Request body cap. */
+/** Request body cap for note writes. */
 const BODY_LIMIT = 1024 * 1024;
+
+/** Request body cap for base64 image uploads (decoded cap + base64 overhead). */
+const IMAGE_BODY_LIMIT = Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 64 * 1024;
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
@@ -56,16 +67,22 @@ function readJsonBody(req, limit = BODY_LIMIT) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let total = 0;
+    let tooLarge = false;
     req.on('data', (chunk) => {
+      if (tooLarge) return;
       total += chunk.length;
       if (total > limit) {
+        tooLarge = true;
+        chunks.length = 0;
         reject(new NoteStoreError('too-large', 'Request body is too large.'));
-        req.destroy();
+        // Drain the rest so the 413 response can still be delivered.
+        req.resume();
         return;
       }
       chunks.push(chunk);
     });
     req.on('end', () => {
+      if (tooLarge) return;
       try {
         const text = Buffer.concat(chunks).toString('utf8');
         const value = text === '' ? {} : JSON.parse(text);
@@ -172,7 +189,10 @@ export async function handleRequest(ctx, req, res) {
     await dispatchRequest(ctx, req, res);
   } catch (error) {
     if (error instanceof NoteStoreError) {
-      const status = error.code === 'unknown-workspace' || error.code === 'bad-root' ? 403 : 400;
+      let status = 400;
+      if (error.code === 'unknown-workspace' || error.code === 'bad-root') status = 403;
+      else if (error.code === 'too-large') status = 413;
+      else if (error.code === 'unsupported-type') status = 415;
       sendJson(res, { ok: false, code: error.code, error: error.message }, status);
       return;
     }
@@ -199,7 +219,29 @@ async function dispatchRequest(ctx, req, res) {
   }
   const action = url.pathname.slice(ROUTE.length).replace(/^\/+|\/+$/gu, '');
   if (action === 'ping') {
-    sendJson(res, { ok: true, plugin: 'dsh-notepad', version: VERSION, noteVersion: NOTE_VERSION });
+    sendJson(res, {
+      ok: true,
+      plugin: 'dsh-notepad',
+      version: VERSION,
+      noteVersion: NOTE_VERSION,
+      imageTypes: Object.keys(IMAGE_TYPES),
+      maxImageBytes: MAX_IMAGE_BYTES,
+    });
+    return;
+  }
+  if (action === 'image') {
+    if (req.method !== 'POST') {
+      sendJson(res, { ok: false, code: 'method', error: 'Use POST.' }, 405);
+      return;
+    }
+    const body = await readJsonBody(req, IMAGE_BODY_LIMIT);
+    const root = await resolveRequestRoot(ctx, body);
+    const image = await saveClipboardImage(root, {
+      name: body.name,
+      mime: body.mime,
+      data: body.data,
+    });
+    sendJson(res, { ok: true, root, ...image });
     return;
   }
   if (action !== 'note') {

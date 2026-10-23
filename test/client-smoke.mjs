@@ -192,6 +192,17 @@ const windowShim = {
 const loadedModules = [];
 globalThis.window = windowShim;
 globalThis.document = documentShim;
+globalThis.FileReader = class FileReader {
+  readAsDataURL(file) {
+    this.result = `data:${file?.type ?? 'image/png'};base64,${file?.__base64 ?? 'AAAA'}`;
+    this.onload?.();
+  }
+};
+globalThis.__DSH_HOST_PATHS__ = {
+  pathFor(file) {
+    return typeof file?.__path === 'string' ? file.__path : '';
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Load
@@ -249,10 +260,16 @@ const inserted = [];
 const replacedDrafts = [];
 const sent = [];
 let persistedDrafts = 0;
+let uploadedImages = 0;
 
 function merge(segments) {
   return segments
-    .map((segment) => segment.text)
+    .map((segment) => {
+      const parts = [];
+      if (String(segment.text ?? '').trim() !== '') parts.push(segment.text);
+      for (const image of segment.images ?? []) parts.push(`![${image.name}](${image.path})`);
+      return parts.join('\n');
+    })
     .filter((text) => text.trim() !== '')
     .join('\n\n');
 }
@@ -268,6 +285,18 @@ function jsonResponse(data, status = 200) {
 globalThis.fetch = async (input, init = {}) => {
   const url = new URL(String(input), 'http://127.0.0.1:1');
   requests.push({ url: url.pathname + url.search, method: init.method ?? 'GET', body: init.body });
+  if (url.pathname === '/dsh-notepad/api/image') {
+    const body = JSON.parse(init.body);
+    uploadedImages += 1;
+    return jsonResponse({
+      ok: true,
+      root: body.root,
+      path: `.dsh/notepad/images/uploaded-${uploadedImages}.png`,
+      name: body.name ?? 'image.png',
+      mime: body.mime ?? 'image/png',
+      size: 4,
+    });
+  }
   if (url.pathname !== '/dsh-notepad/api/note') {
     return jsonResponse({ ok: false, error: 'not found' }, 404);
   }
@@ -679,6 +708,77 @@ assert.equal(copyButton.element.props.disabled, false);
 await copyButton.element.props.onClick();
 const afterCopy = await renderRounds(1);
 assert.ok(afterCopy.text.includes('已复制'), 'copy toast shown');
+
+// Images: pick keeps the host path, paste uploads into the plugin dir ---------
+const imageInput = afterCopy.seen.find(({ element }) => element.type === 'input' && element.props.type === 'file');
+assert.ok(imageInput, 'each active segment exposes a hidden image input');
+assert.ok(findByTitle(afterCopy.seen, '添加图片'), 'the segment header exposes an add-image button');
+assert.equal(imageInput.element.props.multiple, true);
+assert.equal(imageInput.element.props.accept.includes('image/png'), true);
+const pickFile = {
+  type: 'image/png',
+  name: 'picked.png',
+  size: 12,
+  __path: 'D:\\Projects\\demo-workspace\\pics\\picked.png',
+};
+imageInput.element.props.onChange({ currentTarget: { files: [pickFile], value: '' } });
+const afterPick = await renderRounds(3);
+assert.equal(uploadedImages, 0, 'a selected image with a host path is not copied');
+assert.ok(afterPick.text.includes('1 张图片'), 'footer counts picked images');
+assert.equal(afterPick.seen.filter(({ element }) => element.type === 'img').length, 1, 'image chip renders a thumbnail');
+const pickedSrc = afterPick.seen.find(({ element }) => element.type === 'img').element.props.src;
+assert.ok(String(pickedSrc).includes('api/file?path='), 'thumbnail uses the authenticated file route');
+assert.ok(String(pickedSrc).includes('picked.png'));
+
+const imageEditor = findByClass(afterPick.seen, 'dsh-np-editor');
+assert.ok(imageEditor, 'image editor wrapper exists');
+let prevented = 0;
+imageEditor.element.props.onPaste({
+  clipboardData: {
+    files: [{
+      type: 'image/png',
+      name: 'clip.png',
+      size: 12,
+      __path: 'C:\\screens\\clip.png',
+      __base64: 'AAAA',
+    }],
+  },
+  preventDefault() { prevented += 1; },
+});
+const afterPaste = await renderRounds(4);
+assert.equal(prevented, 1, 'an image paste is intercepted');
+assert.equal(uploadedImages, 1, 'a pasted image is uploaded even when it has a host path');
+assert.ok(afterPaste.text.includes('2 张图片'), 'footer counts pasted images');
+const thumbnails = afterPaste.seen.filter(({ element }) => element.type === 'img').map(({ element }) => String(element.props.src));
+assert.ok(thumbnails.some((src) => src.includes('uploaded-1.png')), 'pasted image previews the plugin-directory file');
+
+const insertWithImages = findByTitle(afterPaste.seen, '插入此段');
+assert.ok(insertWithImages, 'image-bearing segment can still be inserted');
+await insertWithImages.element.props.onClick();
+assert.equal(
+  inserted.at(-1).text,
+  '第一\n![picked.png](pics/picked.png)\n![clip.png](.dsh/notepad/images/uploaded-1.png)',
+  'insert appends path-based Markdown image references',
+);
+
+const removeImageButtons = findAllByTitle(afterPaste.seen, '移除图片');
+assert.equal(removeImageButtons.length, 2, 'each image chip has a remove button');
+await removeImageButtons.at(-1).element.props.onClick();
+const afterRemoveImage = await renderRounds(2);
+assert.ok(afterRemoveImage.text.includes('1 张图片'), 'removing a chip updates the footer count');
+assert.equal(afterRemoveImage.seen.filter(({ element }) => element.type === 'img').length, 1, 'removed image card is gone');
+await new Promise((resolve) => setTimeout(resolve, 650));
+await renderRounds(1);
+const imagePut = JSON.parse(requests.filter((request) => request.method === 'PUT').at(-1).body);
+const activeWithImages = imagePut.segments.find((segment) => segment.archived !== true);
+assert.equal(activeWithImages.images.length, 1, 'autosave persists the remaining image reference');
+assert.equal(activeWithImages.images[0].path, 'pics/picked.png');
+
+const unsupportedInput = afterRemoveImage.seen.find(({ element }) => element.type === 'input' && element.props.type === 'file');
+unsupportedInput.element.props.onChange({ currentTarget: { files: [{ type: 'text/plain', name: 'a.txt' }], value: '' } });
+const afterUnsupported = await renderRounds(1);
+assert.ok(afterUnsupported.text.includes('只支持 PNG / JPEG / WebP / GIF 图片'), 'unsupported files are rejected with feedback');
+assert.ok(!afterUnsupported.text.includes('2 张图片'), 'unsupported files are not attached');
 
 // Global hotkey ----------------------------------------------------------
 const keydown = listeners.get('keydown');

@@ -51,8 +51,10 @@ test('ping identifies the plugin', async (t) => {
   const body = await response.json();
   assert.equal(body.ok, true);
   assert.equal(body.plugin, 'dsh-notepad');
-  assert.equal(body.version, '0.2.0');
+  assert.equal(body.version, '0.3.0');
   assert.equal(body.noteVersion, NOTE_VERSION);
+  assert.deepEqual(body.imageTypes, ['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+  assert.equal(body.maxImageBytes, 20 * 1024 * 1024);
 });
 
 test('GET/PUT round-trip stores segments and archives', async (t) => {
@@ -177,4 +179,70 @@ test('a cross-origin request is forbidden', async (t) => {
     headers: { Origin: 'https://evil.example' },
   });
   assert.equal(response.status, 403);
+});
+
+const PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+function imageRequest(base, root, overrides = {}) {
+  return fetch(`${base}/dsh-notepad/api/image`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      root,
+      sessionId: 's1',
+      name: 'shot.png',
+      mime: 'image/png',
+      data: PNG_BASE64,
+      ...overrides,
+    }),
+  });
+}
+
+test('POST image writes under the plugin directory and returns a workspace path', async (t) => {
+  const root = await tempDir(t);
+  const base = await serve(t, fakeContext({ workspaces: [{ path: root }] }));
+  const response = await imageRequest(base, root);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.mime, 'image/png');
+  assert.equal(body.size, Buffer.from(PNG_BASE64, 'base64').byteLength);
+  assert.match(body.path, /^\.dsh\/notepad\/images\/[a-z0-9]+-[0-9a-f]+-shot\.png$/u);
+  const saved = await readFile(path.join(root, ...body.path.split('/')));
+  assert.deepEqual(saved, Buffer.from(PNG_BASE64, 'base64'));
+
+  const segments = [{ id: 'seg-1', text: '截图', images: [{ path: body.path, name: 'shot.png' }] }];
+  const save = await fetch(`${base}/dsh-notepad/api/note`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root, sessionId: 's1', segments }),
+  });
+  assert.equal(save.status, 200);
+  const savedNote = await save.json();
+  assert.deepEqual(savedNote.segments[0].images, [{ path: body.path, name: 'shot.png' }]);
+  assert.equal(savedNote.text, `截图\n![shot.png](${body.path})`);
+});
+
+test('image upload rejects unsupported, mismatched and malformed payloads', async (t) => {
+  const root = await tempDir(t);
+  const base = await serve(t, fakeContext({ workspaces: [{ path: root }] }));
+
+  const unsupported = await imageRequest(base, root, { mime: 'text/plain', name: 'a.txt' });
+  assert.equal(unsupported.status, 415);
+  assert.equal((await unsupported.json()).code, 'unsupported-type');
+
+  const mismatched = await imageRequest(base, root, { mime: 'image/png', data: Buffer.from('hello').toString('base64') });
+  assert.equal(mismatched.status, 415);
+  assert.equal((await mismatched.json()).code, 'unsupported-type');
+
+  const malformed = await imageRequest(base, root, { data: 'not base64!' });
+  assert.equal(malformed.status, 400);
+  assert.equal((await malformed.json()).code, 'bad-input');
+
+  const wrongMethod = await fetch(`${base}/dsh-notepad/api/image`);
+  assert.equal(wrongMethod.status, 405);
+
+  const unknownRoot = await imageRequest(base, path.join(root, 'elsewhere'));
+  assert.equal(unknownRoot.status, 403);
+  assert.equal((await unknownRoot.json()).code, 'unknown-workspace');
 });

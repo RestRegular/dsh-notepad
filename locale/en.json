@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Notepad",
-    "description": "A per-workspace floating notepad in the session view. Enter creates segment cards; insert, replace, or send one or many; sending archives automatically. Archived segments can be shown, hidden, restored, and deleted. Resizable and dark-mode aware."
+    "description": "A per-workspace floating notepad in the session view. Enter creates segment cards; paste or pick images as path-based attachment chips; insert, replace, or send one or many; sending archives automatically. Archived segments can be shown, hidden, restored, and deleted. Resizable and dark-mode aware."
   }
 }

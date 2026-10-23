@@ -50,6 +50,14 @@ window.__ModuleLoader__.load({
     const SAVE_DELAY = 500;
     const MAX_SEGMENTS = 200;
     const MAX_SEGMENT_CHARS = 160000;
+    const MAX_IMAGES = 20;
+    const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+    const IMAGE_MIME = {
+      'image/png': 'png',
+      'image/jpeg': 'jpg',
+      'image/webp': 'webp',
+      'image/gif': 'gif',
+    };
 
     // ------------------------------------------------------------------
     // Copy
@@ -124,9 +132,21 @@ window.__ModuleLoader__.load({
         show: '显示记事本（Ctrl+Shift+N）',
         chars: '{n} 字符',
         segments: '{n} 段',
-        hint: 'Enter 新建分段 · Shift+Enter 换行 · Ctrl+Enter 插入',
+        hint: 'Enter 新建分段 · Shift+Enter 换行 · Ctrl+Enter 插入 · 支持粘贴图片',
         workspace: '工作区',
         resize: '拖动调整大小',
+        addImage: '添加图片',
+        removeImage: '移除图片',
+        openImage: '打开图片',
+        imageAdded: '已添加 {n} 张图片',
+        imageFailed: '图片添加失败',
+        imageUnsupported: '只支持 PNG / JPEG / WebP / GIF 图片',
+        imageTooLarge: '图片太大（最大 20 MB）',
+        imageTooMany: '每段最多 {n} 张图片',
+        imageUploading: '图片处理中…',
+        images: '{n} 张图片',
+        dropImage: '松开以添加图片',
+        imagePasteSaved: '已保存到 .dsh/notepad/images',
       },
       en: {
         title: 'Notepad',
@@ -197,9 +217,21 @@ window.__ModuleLoader__.load({
         show: 'Show notepad (Ctrl+Shift+N)',
         chars: '{n} chars',
         segments: '{n} segments',
-        hint: 'Enter new segment · Shift+Enter newline · Ctrl+Enter insert',
+        hint: 'Enter new segment · Shift+Enter newline · Ctrl+Enter insert · Paste images',
         workspace: 'Workspace',
         resize: 'Drag to resize',
+        addImage: 'Add image',
+        removeImage: 'Remove image',
+        openImage: 'Open image',
+        imageAdded: 'Added {n} image(s)',
+        imageFailed: 'Could not add image',
+        imageUnsupported: 'Only PNG / JPEG / WebP / GIF images are supported',
+        imageTooLarge: 'Image is too large (20 MB max)',
+        imageTooMany: 'At most {n} images per segment',
+        imageUploading: 'Processing image…',
+        images: '{n} image(s)',
+        dropImage: 'Drop to add the image',
+        imagePasteSaved: 'Saved under .dsh/notepad/images',
       },
     };
 
@@ -438,6 +470,24 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** Picture frame with a mountain: image attachment. */
+    function ImageIcon({ size = 16 }) {
+      return h(
+        Svg,
+        { size, viewBox: '0 0 16 16' },
+        h('rect', {
+          x: 2.2, y: 3.2, width: 11.6, height: 9.6, rx: 1.6,
+          stroke: 'currentColor', strokeWidth: 1.25, fill: 'none',
+        }),
+        h('circle', { cx: 5.9, cy: 6.5, r: 1.05, fill: 'currentColor' }),
+        h('path', {
+          d: 'M3.4 11.5 6.6 8.5l2 1.8 1.9-2.1 2.3 2.4',
+          stroke: 'currentColor', strokeWidth: 1.25,
+          strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none',
+        }),
+      );
+    }
+
     /** Arrow towards the bottom-right corner: minimize to the corner icon. */
     function MinimizeIcon({ size = 16 }) {
       return h(
@@ -480,7 +530,7 @@ window.__ModuleLoader__.load({
 .dsh-np-btn[data-accent=true]{background:var(--np-accent);color:var(--np-accent-fg)}
 .dsh-np-btn[data-accent=true]:hover:not(:disabled){background:color-mix(in srgb,var(--np-accent) 88%,#000);color:var(--np-accent-fg)}
 .dsh-np-btn:disabled{opacity:.38;cursor:default;background:transparent;color:var(--dsw-alias-label-tertiary,#6b7280)}
-.dsh-np-btn:focus-visible,.dsh-np-segbtn:focus-visible,.dsh-np-link:focus-visible,.dsh-np-empty-add:focus-visible,.dsh-np-toast-action:focus-visible,.dsh-np-selectall input:focus-visible,.dsh-np-check input:focus-visible,.dsh-np-restore:focus-visible{outline:2px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#4176e6));outline-offset:-2px}
+.dsh-np-btn:focus-visible,.dsh-np-segbtn:focus-visible,.dsh-np-link:focus-visible,.dsh-np-empty-add:focus-visible,.dsh-np-toast-action:focus-visible,.dsh-np-selectall input:focus-visible,.dsh-np-check input:focus-visible,.dsh-np-restore:focus-visible,.dsh-np-img-open:focus-visible,.dsh-np-img-remove:focus-visible{outline:2px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#4176e6));outline-offset:-2px}
 .dsh-np-badge{position:absolute;top:2px;right:2px;min-width:13px;height:13px;padding:0 3px;box-sizing:border-box;border-radius:7px;background:var(--np-accent);color:var(--np-accent-fg);font-size:9px;font-weight:600;line-height:13px;text-align:center;font-variant-numeric:tabular-nums}
 .dsh-np-body{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;padding:8px 10px 0;opacity:1;transition:opacity .16s ease,visibility 0s linear 0s}
 .dsh-np-card[data-minimized=true] .dsh-np-body{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .16s ease,visibility 0s linear .16s}
@@ -505,7 +555,20 @@ window.__ModuleLoader__.load({
 .dsh-np-seg-text{display:block;width:100%;box-sizing:border-box;padding:2px 10px 8px;border:0;outline:0;resize:none;background:transparent;color:inherit;font-family:${FONT_STACK};font-size:13px;line-height:1.6;min-height:26px;max-height:240px;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2}
 .dsh-np-seg-text::placeholder{color:var(--dsw-alias-label-caption,#9aa3b2)}
 .dsh-np-seg-text:disabled{opacity:.6}
+.dsh-np-file{display:none}
+.dsh-np-editor{display:flex;flex-direction:column;min-width:0;border-radius:0 0 9px 9px;transition:background .12s}
+.dsh-np-editor[data-drag=true]{background:color-mix(in srgb,var(--np-accent) 8%,transparent);box-shadow:inset 0 0 0 1.5px var(--np-accent)}
+.dsh-np-medias{display:flex;flex-wrap:wrap;gap:5px;padding:5px 9px 0}
+.dsh-np-img{display:inline-flex;align-items:center;gap:4px;max-width:100%;height:38px;padding:2px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.12));border-radius:8px;background:var(--np-surface);box-shadow:0 1px 2px rgb(15 23 42/.05)}
+.dsh-np-img[data-pending=true]{padding-right:8px;color:var(--dsw-alias-label-tertiary,#6b7280)}
+.dsh-np-img-open{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;padding:0;border:0;border-radius:6px;background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));overflow:hidden;cursor:zoom-in}
+.dsh-np-img-open img{display:block;width:100%;height:100%;object-fit:cover}
+.dsh-np-img-name{max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;line-height:13px;color:var(--dsw-alias-label-secondary,#4b5563)}
+.dsh-np-img-remove{display:inline-flex;align-items:center;justify-content:center;flex:none;width:17px;height:17px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--dsw-alias-label-caption,#9aa3b2);cursor:pointer}
+.dsh-np-img-remove:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));color:var(--dsw-alias-state-error-primary,#e25555)}
+.dsh-np-img-spinner{flex:none;width:14px;height:14px;border:2px solid color-mix(in srgb,var(--np-accent) 30%,transparent);border-top-color:var(--np-accent);border-radius:50%;animation:dsh-np-spin .8s linear infinite}
 .dsh-np-seg-archived-text{padding:2px 10px 9px;color:var(--dsw-alias-label-secondary,#4b5563);font-size:13px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+.dsh-np-seg[data-archived=true] .dsh-np-medias{padding:0 10px 8px}
 .dsh-np-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;flex:none;padding:22px 12px;text-align:center;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px}
 .dsh-np-empty-add{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.12));border-radius:7px;background:var(--np-surface-2);color:var(--dsw-alias-label-secondary,#4b5563);font:inherit;font-size:12px;cursor:pointer}
 .dsh-np-empty-add:hover{color:var(--dsw-alias-label-primary,#1f2430);background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06))}
@@ -538,11 +601,12 @@ window.__ModuleLoader__.load({
 @keyframes dsh-np-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 @keyframes dsh-np-rise{from{opacity:0;transform:translate(-50%,4px)}to{opacity:1;transform:translate(-50%,0)}}
 @keyframes dsh-np-item-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+@keyframes dsh-np-spin{to{transform:rotate(360deg)}}
 body[data-ds-dark-theme] .dsh-np-card{--np-accent-fg:#0f1115;box-shadow:0 18px 48px rgb(0 0 0/.55),0 0 0 .5px rgb(255 255 255/.07)}
 body[data-ds-dark-theme] .dsh-np-seg[data-selected=true]{background:color-mix(in srgb,var(--np-accent) 14%,var(--dsw-alias-bg-layer-2,#2c2c2e))}
 body[data-ds-dark-theme] .dsh-np-btn[data-accent=true]:hover:not(:disabled){background:color-mix(in srgb,var(--np-accent) 84%,#fff)}
 body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
-@media (prefers-reduced-motion:reduce){.dsh-np-card,.dsh-np-body,.dsh-np-archive,.dsh-np-restore,.dsh-np-seg,.dsh-np-toast{transition:none!important;animation:none!important}.dsh-np-dot[data-state=saving]{animation:none}}`;
+@media (prefers-reduced-motion:reduce){.dsh-np-card,.dsh-np-body,.dsh-np-archive,.dsh-np-restore,.dsh-np-seg,.dsh-np-toast{transition:none!important;animation:none!important}.dsh-np-dot[data-state=saving]{animation:none}.dsh-np-img-spinner{animation:none}}`;
 
     // ------------------------------------------------------------------
     // Helpers
@@ -563,13 +627,16 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
     }
 
     function newSegment(text) {
-      return { id: newSegmentId(), text, archived: false, archivedAt: null };
+      return { id: newSegmentId(), text, images: [], archived: false, archivedAt: null };
     }
 
     function serializeSegments(segments) {
       return segments.map((segment) => ({
         id: segment.id,
         text: segment.text,
+        ...(Array.isArray(segment.images) && segment.images.length > 0
+          ? { images: segment.images.map((image) => ({ path: image.path, name: image.name })) }
+          : {}),
         ...(segment.archived === true ? { archived: true } : {}),
         ...(segment.archived === true && typeof segment.archivedAt === 'string' ? { archivedAt: segment.archivedAt } : {}),
       }));
@@ -588,6 +655,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           out.push({
             id,
             text: item.text,
+            images: normalizeImages(item.images),
             archived,
             archivedAt: archived && typeof item.archivedAt === 'string' ? item.archivedAt : null,
           });
@@ -598,11 +666,194 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       return text === '' ? [] : [newSegment(text)];
     }
 
+    function baseNameOf(value) {
+      const trimmed = String(value ?? '').replace(/[/\\]+$/u, '');
+      const separator = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+      return trimmed.slice(separator + 1);
+    }
+
+    function normalizeImage(value) {
+      if (typeof value === 'string') value = { path: value };
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+      if (typeof value.path !== 'string') return null;
+      const filePath = value.path.trim().replace(/\\/gu, '/');
+      if (filePath === '') return null;
+      const rawName = typeof value.name === 'string' && value.name.trim() !== ''
+        ? value.name.trim().replace(/\s+/gu, ' ')
+        : baseNameOf(filePath);
+      return { path: filePath, name: rawName === '' ? 'image' : rawName.slice(0, 160) };
+    }
+
+    function normalizeImages(value) {
+      if (!Array.isArray(value)) return [];
+      const out = [];
+      for (const item of value) {
+        if (out.length >= MAX_IMAGES) break;
+        const image = normalizeImage(item);
+        if (image !== null) out.push(image);
+      }
+      return out;
+    }
+
+    /** Markdown reference used in the note body and composer transfers. */
+    function imageMarkdown(image) {
+      const file = typeof image?.path === 'string' ? image.path.replace(/\\/gu, '/') : '';
+      if (file === '') return '';
+      const label = (typeof image?.name === 'string' ? image.name : '')
+        .replace(/[\r\n]+/gu, ' ')
+        .replace(/[[\]]/gu, ' ')
+        .trim() || baseNameOf(file) || 'image';
+      let target;
+      try {
+        target = encodeURI(file);
+      } catch {
+        target = file;
+      }
+      target = target
+        .replace(/#/gu, '%23')
+        .replace(/\?/gu, '%3F')
+        .replace(/\(/gu, '%28')
+        .replace(/\)/gu, '%29');
+      return `![${label}](${target})`;
+    }
+
+    /** One segment as text plus one Markdown line per attached image. */
+    function segmentBody(segment) {
+      if (segment === null || segment === undefined) return '';
+      const text = typeof segment.text === 'string' ? segment.text : '';
+      const images = Array.isArray(segment.images) ? segment.images : [];
+      const parts = [];
+      if (text.trim() !== '') parts.push(text);
+      for (const image of images) {
+        const markdown = imageMarkdown(image);
+        if (markdown !== '') parts.push(markdown);
+      }
+      return parts.join('\n');
+    }
+
     function mergedText(segments) {
       return segments
-        .map((segment) => (segment !== null && segment !== undefined && typeof segment.text === 'string' ? segment.text : ''))
-        .filter((text) => text.trim() !== '')
+        .map((segment) => segmentBody(segment))
+        .filter((text) => text !== '')
         .join('\n\n');
+    }
+
+    function isAbsolutePath(value) {
+      const text = String(value ?? '');
+      return text.startsWith('/') || /^[A-Za-z]:\//u.test(text) || text.startsWith('//');
+    }
+
+    function normalizedCwd(value) {
+      return String(value ?? '').replace(/\\/gu, '/').replace(/\/+$/u, '');
+    }
+
+    /** Store a path relative to the workspace when it lives inside it. */
+    function imagePathForNote(pathValue, cwd) {
+      const file = String(pathValue ?? '').replace(/\\/gu, '/');
+      const root = normalizedCwd(cwd);
+      if (root === '') return file;
+      // Windows drive / UNC spellings are case-insensitive; POSIX ones are not.
+      const windows = /^[A-Za-z]:\//u.test(root) || root.startsWith('//');
+      const compareFile = windows ? file.toLowerCase() : file;
+      const compareRoot = windows ? root.toLowerCase() : root;
+      if (compareFile === compareRoot) return '.';
+      if (compareFile.startsWith(`${compareRoot}/`)) return file.slice(root.length + 1);
+      return file;
+    }
+
+    function absoluteImagePath(pathValue, cwd) {
+      const file = String(pathValue ?? '').replace(/\\/gu, '/');
+      if (isAbsolutePath(file)) return file;
+      const root = normalizedCwd(cwd);
+      return root === '' ? file : `${root}/${file.replace(/^\/+/u, '')}`;
+    }
+
+    /** Authenticated host file route used by the browser image renderer. */
+    function imageUrl(pathValue, cwd) {
+      const target = absoluteImagePath(pathValue, cwd);
+      try {
+        const base = typeof document !== 'undefined' && typeof document.baseURI === 'string'
+          ? document.baseURI
+          : 'http://localhost/';
+        const url = new URL('api/file', base);
+        url.searchParams.set('path', target);
+        return url.href;
+      } catch {
+        return `/api/file?path=${encodeURIComponent(target)}`;
+      }
+    }
+
+    function imageMimeOf(file) {
+      const type = typeof file?.type === 'string' ? file.type.toLowerCase() : '';
+      if (type !== '') return Object.prototype.hasOwnProperty.call(IMAGE_MIME, type) ? type : '';
+      const name = String(file?.name ?? '');
+      if (/\.png$/iu.test(name)) return 'image/png';
+      if (/\.jpe?g$/iu.test(name)) return 'image/jpeg';
+      if (/\.webp$/iu.test(name)) return 'image/webp';
+      if (/\.gif$/iu.test(name)) return 'image/gif';
+      return '';
+    }
+
+    function isSupportedImage(file) {
+      return imageMimeOf(file) !== '';
+    }
+
+    function hostPathOf(file) {
+      try {
+        const bridge = globalThis.__DSH_HOST_PATHS__;
+        if (bridge === null || bridge === undefined || typeof bridge.pathFor !== 'function') return '';
+        const value = bridge.pathFor(file);
+        return typeof value === 'string' ? value : '';
+      } catch {
+        return '';
+      }
+    }
+
+    class ImageError extends Error {
+      constructor(code, message) {
+        super(message ?? code);
+        this.name = 'ImageError';
+        this.code = code;
+      }
+    }
+
+    function readFileBase64(file) {
+      return new Promise((resolve, reject) => {
+        try {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new ImageError('read-failed', 'Could not read the image file.'));
+          reader.onload = () => {
+            const result = typeof reader.result === 'string' ? reader.result : '';
+            const comma = result.indexOf(',');
+            resolve(comma >= 0 ? result.slice(comma + 1) : result);
+          };
+          reader.readAsDataURL(file);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    }
+
+    async function uploadImage(root, sessionId, file) {
+      if (Number(file?.size) > MAX_IMAGE_BYTES) throw new ImageError('too-large');
+      const mime = imageMimeOf(file);
+      if (mime === '') throw new ImageError('unsupported');
+      const data = await readFileBase64(file);
+      const response = await fetch(`${API}/image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          root,
+          sessionId,
+          name: typeof file?.name === 'string' && file.name !== '' ? file.name : 'image.png',
+          mime,
+          data,
+        }),
+      });
+      const payload = await readResponse(response);
+      const image = normalizeImage(payload);
+      if (image === null) throw new ImageError('upload-failed', 'The host did not return an image path.');
+      return image;
     }
 
     function autoGrow(element) {
@@ -769,6 +1020,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const [ui, setUi] = useState(readStoredUi);
       const [sending, setSending] = useState(false);
       const [resizing, setResizing] = useState(false);
+      const [uploading, setUploading] = useState({});
+      const [dragSegment, setDragSegment] = useState('');
 
       const bindingRef = useRef(null);
       const rootSessionRef = useRef('');
@@ -789,6 +1042,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const resizeRef = useRef(null);
       const sendingRef = useRef(false);
       const textareaRefs = useRef(new Map());
+      const fileInputRefs = useRef(new Map());
       const listRef = useRef(null);
       const pendingFocusRef = useRef(null);
       const undoRef = useRef(null);
@@ -1116,6 +1370,153 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         setStatus('dirty');
         setError('');
         scheduleSave();
+      };
+
+      // Image attachments ---------------------------------------------------
+      const imageErrorText = (reason) => {
+        const code = reason?.code;
+        if (code === 'too-large') return t('imageTooLarge');
+        if (code === 'unsupported') return t('imageUnsupported');
+        if (code === 'too-many') return t('imageTooMany', { n: MAX_IMAGES });
+        return `${t('imageFailed')}: ${String(reason?.message ?? reason)}`;
+      };
+
+      const appendImages = (id, images) => {
+        if (!Array.isArray(images) || images.length === 0) return 0;
+        const target = segmentsRef.current.find((segment) => segment.id === id);
+        if (target === undefined || target.archived === true) return 0;
+        const existing = Array.isArray(target.images) ? target.images : [];
+        const room = Math.max(0, MAX_IMAGES - existing.length);
+        if (room === 0) {
+          showToast(t('imageTooMany', { n: MAX_IMAGES }));
+          return 0;
+        }
+        const accepted = images.slice(0, room);
+        const next = segmentsRef.current.map((segment) =>
+          (segment.id === id ? { ...segment, images: [...existing, ...accepted] } : segment));
+        commitSegments(next);
+        if (accepted.length < images.length) showToast(t('imageTooMany', { n: MAX_IMAGES }));
+        else showToast(t('imageAdded', { n: accepted.length }));
+        return accepted.length;
+      };
+
+      /**
+       * Add browser files to one segment. Pasted images are always written into
+       * the plugin directory; selected images use their host path when the
+       * desktop bridge exposes it and fall back to the same upload otherwise.
+       * @param {string} id segment id
+       * @param {ArrayLike<File>} files
+       * @param {'paste'|'pick'} origin
+       */
+      const attachImages = async (id, files, origin) => {
+        const list = Array.from(files ?? []).filter(isSupportedImage);
+        if (list.length === 0) {
+          showToast(t('imageUnsupported'));
+          return;
+        }
+        const root = rootRef.current;
+        const sessionId = rootSessionRef.current;
+        if (root === '' || sessionId === '') return;
+        setUploading((previous) => ({ ...previous, [id]: (previous[id] ?? 0) + list.length }));
+        const collected = [];
+        try {
+          for (const file of list) {
+            const directPath = origin === 'pick' ? hostPathOf(file) : '';
+            if (directPath !== '') {
+              collected.push({
+                path: imagePathForNote(directPath, bindingRef.current?.cwd ?? root),
+                name: baseNameOf(directPath) || file?.name || 'image',
+              });
+              continue;
+            }
+            collected.push(await uploadImage(root, sessionId, file));
+          }
+          if (collected.length > 0) appendImages(id, collected);
+        } catch (reason) {
+          if (collected.length > 0) appendImages(id, collected);
+          showToast(imageErrorText(reason));
+        } finally {
+          setUploading((previous) => {
+            const next = { ...previous };
+            const remaining = (next[id] ?? 0) - list.length;
+            if (remaining > 0) next[id] = remaining;
+            else delete next[id];
+            return next;
+          });
+        }
+      };
+
+      const removeImage = (id, pathValue) => {
+        const next = segmentsRef.current.map((segment) => {
+          if (segment.id !== id) return segment;
+          const images = Array.isArray(segment.images) ? segment.images.filter((image) => image.path !== pathValue) : [];
+          return { ...segment, images };
+        });
+        commitSegments(next);
+      };
+
+      const triggerFilePicker = (id) => {
+        const input = fileInputRefs.current.get(id);
+        if (input !== undefined && input !== null && typeof input.click === 'function') input.click();
+      };
+
+      const onFileInputChange = (event, id) => {
+        const input = event?.currentTarget ?? event?.target;
+        const files = input?.files;
+        if (files !== undefined && files !== null && files.length > 0) attachImages(id, files, 'pick');
+        try {
+          if (input !== null && input !== undefined) input.value = '';
+        } catch {
+          /* A read-only file input value must not break the flow. */
+        }
+      };
+
+      const clipboardImageFiles = (data) => {
+        const files = data?.files;
+        if (files === undefined || files === null) return [];
+        return Array.from(files).filter(isSupportedImage);
+      };
+
+      const onSegmentPaste = (event, id) => {
+        const data = event?.clipboardData ?? event?.nativeEvent?.clipboardData;
+        const files = clipboardImageFiles(data);
+        if (files.length === 0) return;
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        attachImages(id, files, 'paste');
+      };
+
+      const onSegmentDrop = (event, id) => {
+        const files = clipboardImageFiles(event?.dataTransfer);
+        setDragSegment('');
+        if (files.length === 0) return;
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        attachImages(id, files, 'pick');
+      };
+
+      const onSegmentDragOver = (event, id) => {
+        const types = event?.dataTransfer?.types;
+        if (types !== undefined && types !== null && !Array.from(types).includes('Files')) return;
+        event.preventDefault?.();
+        if (dragSegment !== id) setDragSegment(id);
+      };
+
+      const onSegmentDragLeave = (event, id) => {
+        const related = event?.relatedTarget;
+        const current = event?.currentTarget;
+        if (related !== null && related !== undefined && current !== null && current !== undefined
+          && typeof current.contains === 'function' && current.contains(related)) return;
+        if (dragSegment === id) setDragSegment('');
+      };
+
+      const openImage = (image) => {
+        const url = imageUrl(image.path, rootRef.current);
+        try {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        } catch {
+          /* Popups may be blocked; the path remains available in the title. */
+        }
       };
 
       const addSegment = () => {
@@ -1677,101 +2078,201 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           : null,
       );
 
-      const activeCards = activeSegments.map((segment, index) => h(
-        'article',
-        {
-          key: segment.id,
-          className: 'dsh-np-seg',
-          'data-seg-id': segment.id,
-          'data-archived': 'false',
-          'data-selected': selected.has(segment.id) ? 'true' : 'false',
-        },
-        h(
+      const totalImages = segments.reduce(
+        (sum, segment) => sum + (Array.isArray(segment.images) ? segment.images.length : 0), 0);
+
+      const renderMedia = (segment, options = {}) => {
+        const images = Array.isArray(segment.images) ? segment.images : [];
+        const pending = options.pending === true;
+        if (images.length === 0 && !pending) return null;
+        return h(
           'div',
-          { className: 'dsh-np-seg-head' },
+          { className: 'dsh-np-medias' },
+          pending
+            ? h(
+                'div',
+                { key: 'pending', className: 'dsh-np-img', 'data-pending': 'true' },
+                h('span', { className: 'dsh-np-img-spinner' }),
+                h('span', { className: 'dsh-np-img-name' }, t('imageUploading')),
+              )
+            : null,
+          images.map((image, imageIndex) => h(
+            'div',
+            { key: `${imageIndex}-${image.path}`, className: 'dsh-np-img', title: image.path },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-np-img-open',
+                title: `${t('openImage')}: ${image.path}`,
+                'aria-label': t('openImage'),
+                onClick: () => openImage(image),
+              },
+              h('img', {
+                src: imageUrl(image.path, binding.cwd),
+                alt: image.name,
+                loading: 'lazy',
+                decoding: 'async',
+                draggable: false,
+              }),
+            ),
+            h('span', { className: 'dsh-np-img-name', title: image.path }, image.name),
+            options.readOnly === true
+              ? null
+              : h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dsh-np-img-remove',
+                    title: t('removeImage'),
+                    'aria-label': t('removeImage'),
+                    onClick: () => removeImage(segment.id, image.path),
+                  },
+                  h(CloseIcon, { size: 11 }),
+                ),
+          )),
+        );
+      };
+
+      const activeCards = activeSegments.map((segment, index) => {
+        const images = Array.isArray(segment.images) ? segment.images : [];
+        const empty = segment.text.trim() === '' && images.length === 0;
+        return h(
+          'article',
+          {
+            key: segment.id,
+            className: 'dsh-np-seg',
+            'data-seg-id': segment.id,
+            'data-archived': 'false',
+            'data-selected': selected.has(segment.id) ? 'true' : 'false',
+          },
+          h('input', {
+            key: 'file-input',
+            ref: (element) => {
+              if (element === null || element === undefined) {
+                fileInputRefs.current.delete(segment.id);
+                return;
+              }
+              fileInputRefs.current.set(segment.id, element);
+            },
+            className: 'dsh-np-file',
+            type: 'file',
+            accept: 'image/png,image/jpeg,image/webp,image/gif',
+            multiple: true,
+            tabIndex: -1,
+            'aria-hidden': 'true',
+            onChange: (event) => onFileInputChange(event, segment.id),
+          }),
           h(
-            'label',
-            { className: 'dsh-np-check', title: t('selectSegment') },
-            h('input', {
-              type: 'checkbox',
-              checked: selected.has(segment.id),
-              'aria-label': t('selectSegment'),
-              onChange: () => toggleSelected(segment.id),
+            'div',
+            { className: 'dsh-np-seg-head' },
+            h(
+              'label',
+              { className: 'dsh-np-check', title: t('selectSegment') },
+              h('input', {
+                type: 'checkbox',
+                checked: selected.has(segment.id),
+                'aria-label': t('selectSegment'),
+                onChange: () => toggleSelected(segment.id),
+              }),
+            ),
+            h('span', { className: 'dsh-np-index' }, String(index + 1).padStart(2, '0')),
+            h('span', { className: 'dsh-np-spacer' }),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-np-segbtn',
+                title: t('addImage'),
+                'aria-label': t('addImage'),
+                onClick: () => triggerFilePicker(segment.id),
+              },
+              h(ImageIcon, { size: 14 }),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-np-segbtn',
+                title: t('insertSegment'),
+                'aria-label': t('insertSegment'),
+                disabled: empty,
+                onClick: () => insertSegments([segment]),
+              },
+              h(InsertIcon, { size: 14 }),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-np-segbtn',
+                title: t('replaceSegment'),
+                'aria-label': t('replaceSegment'),
+                disabled: empty,
+                onClick: () => replaceSegments([segment]),
+              },
+              h(ReplaceIcon, { size: 14 }),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-np-segbtn',
+                title: t('sendSegment'),
+                'aria-label': t('sendSegment'),
+                disabled: empty || sending,
+                onClick: () => sendSegments([segment]),
+              },
+              h(SendIcon, { size: 14 }),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-np-segbtn',
+                title: t('archiveSegment'),
+                'aria-label': t('archiveSegment'),
+                onClick: () => archiveSegment(segment.id),
+              },
+              h(ArchiveIcon, { size: 14 }),
+            ),
+          ),
+          h(
+            'div',
+            {
+              className: 'dsh-np-editor',
+              'data-drag': dragSegment === segment.id ? 'true' : 'false',
+              onPaste: (event) => onSegmentPaste(event, segment.id),
+              onDrop: (event) => onSegmentDrop(event, segment.id),
+              onDragOver: (event) => onSegmentDragOver(event, segment.id),
+              onDragLeave: (event) => onSegmentDragLeave(event, segment.id),
+            },
+            renderMedia(segment, { pending: (uploading[segment.id] ?? 0) > 0 }),
+            h('textarea', {
+              ref: (element) => {
+                if (element === null || element === undefined) {
+                  textareaRefs.current.delete(segment.id);
+                  return;
+                }
+                textareaRefs.current.set(segment.id, element);
+                autoGrow(element);
+              },
+              className: 'dsh-np-seg-text',
+              rows: 1,
+              value: segment.text,
+              placeholder: index === 0 ? t('placeholder') : t('segmentPlaceholder'),
+              spellCheck: false,
+              maxLength: MAX_SEGMENT_CHARS,
+              'aria-label': t('editor'),
+              onChange: (event) => onSegmentChange(event, segment.id),
+              onKeyDown: (event) => onSegmentKeyDown(event, segment.id),
+              onBlur: () => {
+                if (dirtyRef.current) saveNowRef.current?.();
+              },
             }),
           ),
-          h('span', { className: 'dsh-np-index' }, String(index + 1).padStart(2, '0')),
-          h('span', { className: 'dsh-np-spacer' }),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-np-segbtn',
-              title: t('insertSegment'),
-              'aria-label': t('insertSegment'),
-              disabled: segment.text.trim() === '',
-              onClick: () => insertSegments([segment]),
-            },
-            h(InsertIcon, { size: 14 }),
-          ),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-np-segbtn',
-              title: t('replaceSegment'),
-              'aria-label': t('replaceSegment'),
-              disabled: segment.text.trim() === '',
-              onClick: () => replaceSegments([segment]),
-            },
-            h(ReplaceIcon, { size: 14 }),
-          ),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-np-segbtn',
-              title: t('sendSegment'),
-              'aria-label': t('sendSegment'),
-              disabled: segment.text.trim() === '' || sending,
-              onClick: () => sendSegments([segment]),
-            },
-            h(SendIcon, { size: 14 }),
-          ),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-np-segbtn',
-              title: t('archiveSegment'),
-              'aria-label': t('archiveSegment'),
-              onClick: () => archiveSegment(segment.id),
-            },
-            h(ArchiveIcon, { size: 14 }),
-          ),
-        ),
-        h('textarea', {
-          ref: (element) => {
-            if (element === null || element === undefined) {
-              textareaRefs.current.delete(segment.id);
-              return;
-            }
-            textareaRefs.current.set(segment.id, element);
-            autoGrow(element);
-          },
-          className: 'dsh-np-seg-text',
-          rows: 1,
-          value: segment.text,
-          placeholder: index === 0 ? t('placeholder') : t('segmentPlaceholder'),
-          spellCheck: false,
-          maxLength: MAX_SEGMENT_CHARS,
-          'aria-label': t('editor'),
-          onChange: (event) => onSegmentChange(event, segment.id),
-          onKeyDown: (event) => onSegmentKeyDown(event, segment.id),
-          onBlur: () => {
-            if (dirtyRef.current) saveNowRef.current?.();
-          },
-        }),
-      ));
+        );
+      });
 
       const activeEmpty = activeSegments.length === 0
         ? h(
@@ -1849,7 +2350,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                             className: 'dsh-np-segbtn',
                             title: t('insertSegment'),
                             'aria-label': t('insertSegment'),
-                            disabled: segment.text.trim() === '',
+                            disabled: segment.text.trim() === ''
+                              && !(Array.isArray(segment.images) && segment.images.length > 0),
                             onClick: () => insertSegments([segment]),
                           },
                           h(InsertIcon, { size: 14 }),
@@ -1861,7 +2363,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                             className: 'dsh-np-segbtn',
                             title: t('replaceSegment'),
                             'aria-label': t('replaceSegment'),
-                            disabled: segment.text.trim() === '',
+                            disabled: segment.text.trim() === ''
+                              && !(Array.isArray(segment.images) && segment.images.length > 0),
                             onClick: () => replaceSegments([segment]),
                           },
                           h(ReplaceIcon, { size: 14 }),
@@ -1891,7 +2394,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                         ),
                       ),
                       h('div', { className: 'dsh-np-seg-archived-text' },
-                        segment.text === '' ? t('emptySegment') : segment.text),
+                        segment.text === ''
+                          ? (Array.isArray(segment.images) && segment.images.length > 0 ? null : t('emptySegment'))
+                          : segment.text),
+                      renderMedia(segment, { readOnly: true }),
                     )),
                   ),
             ),
@@ -1921,7 +2427,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             }, t('retry'))
           : null,
         h('span', { className: 'dsh-np-count' },
-          `${t('chars', { n: totalChars })} · ${t('segments', { n: activeSegments.length })}`),
+          `${t('chars', { n: totalChars })} · ${t('segments', { n: activeSegments.length })}`
+          + (totalImages > 0 ? ` · ${t('images', { n: totalImages })}` : '')),
         h('span', { className: 'dsh-np-hint', title: t('hint') }, t('hint')),
       );
 

@@ -73,7 +73,7 @@ assert.match(svg, /^<svg[\s>]/u, 'icon must be an SVG document');
 assert.match(svg, /viewBox="0 0 \d+ \d+"/u);
 
 // Every runtime file is actually published ---------------------------------
-for (const entry of ['index.js', 'client.js', 'lib/note-store.js', 'cordis.patch.yml', 'icon.svg', 'README.md', 'LICENSE']) {
+for (const entry of ['index.js', 'client.js', 'lib/note-store.js', 'lib/image-store.js', 'cordis.patch.yml', 'icon.svg', 'README.md', 'LICENSE']) {
   assert.ok(existsSync(path.join(ROOT, entry)), `${entry} is missing`);
 }
 assert.ok(manifest.files.includes('lib/'), 'the lib/ directory must be published');

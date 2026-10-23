@@ -6,11 +6,13 @@ import test from 'node:test';
 
 import {
   DEFAULT_MAX_BYTES,
+  MAX_IMAGES_PER_SEGMENT,
   MAX_SEGMENTS,
   NOTE_DIR,
   NOTE_FILE,
   NOTE_VERSION,
   NoteStoreError,
+  imageMarkdown,
   notePath,
   parseNote,
   readNote,
@@ -190,4 +192,69 @@ test('writeNote rejects malformed input', async (t) => {
       (error) => error instanceof NoteStoreError && error.code === 'bad-input',
     );
   }
+});
+
+test('image references round-trip and render as Markdown in the body', async (t) => {
+  const root = await workspace(t);
+  const written = await writeNote(root, [
+    {
+      id: 'a',
+      text: '看截图',
+      images: [
+        { path: '.dsh/notepad/images/a b.png', name: 'a b.png' },
+        { path: 'C:\\tmp\\x(1).png', name: 'x' },
+      ],
+    },
+    { id: 'b', text: '', images: [{ path: 'only.png' }] },
+  ]);
+  assert.deepEqual(written.segments[0].images, [
+    { path: '.dsh/notepad/images/a b.png', name: 'a b.png' },
+    { path: 'C:/tmp/x(1).png', name: 'x' },
+  ]);
+  assert.deepEqual(written.segments[1].images, [{ path: 'only.png', name: 'only.png' }]);
+  assert.equal(
+    written.text,
+    '看截图\n![a b.png](.dsh/notepad/images/a%20b.png)\n![x](C:/tmp/x%281%29.png)\n\n![only.png](only.png)',
+  );
+  assert.equal(imageMarkdown({ path: 'a#b?.png', name: '' }), '![a#b?.png](a%23b%3F.png)');
+
+  const raw = JSON.parse(await readFile(notePath(root), 'utf8'));
+  assert.equal(raw.version, NOTE_VERSION);
+  assert.deepEqual(raw.segments[0].images[0], { path: '.dsh/notepad/images/a b.png', name: 'a b.png' });
+  const note = await readNote(root);
+  assert.deepEqual(note.segments, written.segments);
+});
+
+test('image reading is forgiving and writing is strict', async (t) => {
+  const root = await workspace(t);
+  await mkdir(path.join(root, NOTE_DIR), { recursive: true });
+  const many = Array.from({ length: MAX_IMAGES_PER_SEGMENT + 3 }, (_, index) => `img-${index}.png`);
+  await writeFile(notePath(root), JSON.stringify({
+    version: 3,
+    segments: [{
+      id: 'a',
+      text: '带图',
+      images: [null, 42, { path: '' }, 'C:\\pics\\a.png', { path: 'b.png', name: '  B  ' }, ...many],
+    }],
+  }), 'utf8');
+  const note = await readNote(root);
+  assert.equal(note.segments[0].images.length, MAX_IMAGES_PER_SEGMENT);
+  assert.deepEqual(note.segments[0].images[0], { path: 'C:/pics/a.png', name: 'a.png' });
+  assert.deepEqual(note.segments[0].images[1], { path: 'b.png', name: 'B' });
+
+  await assert.rejects(
+    () => writeNote(root, [{ text: 'x', images: [{ path: '' }] }]),
+    (error) => error instanceof NoteStoreError && error.code === 'bad-input',
+  );
+  await assert.rejects(
+    () => writeNote(root, [{ text: 'x', images: [{}] }]),
+    (error) => error instanceof NoteStoreError && error.code === 'bad-input',
+  );
+  await assert.rejects(
+    () => writeNote(root, [{
+      text: 'x',
+      images: Array.from({ length: MAX_IMAGES_PER_SEGMENT + 1 }, (_, index) => ({ path: `${index}.png` })),
+    }]),
+    (error) => error instanceof NoteStoreError && error.code === 'too-many',
+  );
 });
