@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { handleRequest } from '../index.js';
-import { notePath } from '../lib/note-store.js';
+import { NOTE_VERSION, notePath } from '../lib/note-store.js';
 
 function fakeContext({ workspaces = [], sessions = {} } = {}) {
   return {
@@ -51,36 +51,64 @@ test('ping identifies the plugin', async (t) => {
   const body = await response.json();
   assert.equal(body.ok, true);
   assert.equal(body.plugin, 'dsh-notepad');
-  assert.equal(body.version, '0.1.0');
+  assert.equal(body.version, '0.2.0');
+  assert.equal(body.noteVersion, NOTE_VERSION);
 });
 
-test('GET/PUT round-trip is scoped to a registered workspace', async (t) => {
+test('GET/PUT round-trip stores segments and archives', async (t) => {
   const root = await tempDir(t);
   const base = await serve(t, fakeContext({ workspaces: [{ path: root }] }));
 
   const empty = await (await fetch(`${base}/dsh-notepad/api/note?root=${encodeURIComponent(root)}&sessionId=s1`)).json();
   assert.equal(empty.ok, true);
   assert.equal(empty.text, '');
+  assert.deepEqual(empty.segments, []);
   assert.equal(empty.exists, false);
 
+  const segments = [
+    { id: 'seg-1', text: '遇到的问题\n下一步' },
+    { id: 'seg-2', text: '已经发送', archived: true, archivedAt: '2026-01-01T00:00:00.000Z' },
+  ];
   const save = await fetch(`${base}/dsh-notepad/api/note`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ root, sessionId: 's1', text: '遇到的问题\n下一步' }),
+    body: JSON.stringify({ root, sessionId: 's1', segments }),
   });
   assert.equal(save.status, 200);
   const saved = await save.json();
   assert.equal(saved.ok, true);
-  assert.equal(saved.text, '遇到的问题\n下一步');
+  assert.equal(saved.text, '遇到的问题\n下一步\n\n已经发送');
+  assert.equal(saved.segments.length, 2);
+  assert.equal(saved.segments[1].archived, true);
   assert.ok(saved.mtimeMs > 0);
 
   const raw = await readFile(notePath(root), 'utf8');
-  assert.equal(JSON.parse(raw).text, '遇到的问题\n下一步');
+  const parsed = JSON.parse(raw);
+  assert.equal(parsed.version, NOTE_VERSION);
+  assert.equal(parsed.segments[0].text, '遇到的问题\n下一步');
+  assert.equal(parsed.segments[1].archived, true);
+  assert.equal(parsed.text, '遇到的问题\n下一步\n\n已经发送');
 
   const read = await (await fetch(`${base}/dsh-notepad/api/note?root=${encodeURIComponent(root)}&sessionId=s1`)).json();
-  assert.equal(read.text, '遇到的问题\n下一步');
+  assert.equal(read.text, '遇到的问题\n下一步\n\n已经发送');
+  assert.equal(read.segments.length, 2);
   assert.equal(read.exists, true);
   assert.equal(read.updatedAt, saved.updatedAt);
+});
+
+test('PUT still accepts a legacy text body', async (t) => {
+  const root = await tempDir(t);
+  const base = await serve(t, fakeContext({ workspaces: [{ path: root }] }));
+  const save = await fetch(`${base}/dsh-notepad/api/note`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root, sessionId: 's1', text: '旧客户端写入' }),
+  });
+  assert.equal(save.status, 200);
+  const saved = await save.json();
+  assert.equal(saved.text, '旧客户端写入');
+  assert.equal(saved.segments.length, 1);
+  assert.equal(saved.segments[0].text, '旧客户端写入');
 });
 
 test('the requesting session cwd is accepted even when it is not in the registry', async (t) => {
@@ -122,6 +150,25 @@ test('a malformed JSON body is a 400', async (t) => {
   });
   assert.equal(response.status, 400);
   assert.equal((await response.json()).code, 'bad-input');
+});
+
+test('a malformed segments body is a 400 and keeps the old note', async (t) => {
+  const root = await tempDir(t);
+  const base = await serve(t, fakeContext({ workspaces: [{ path: root }] }));
+  await fetch(`${base}/dsh-notepad/api/note`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root, sessionId: 's1', segments: [{ id: 'ok', text: '保留' }] }),
+  });
+  const response = await fetch(`${base}/dsh-notepad/api/note`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root, sessionId: 's1', segments: [{ id: 'bad' }] }),
+  });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, 'bad-input');
+  const read = await (await fetch(`${base}/dsh-notepad/api/note?root=${encodeURIComponent(root)}&sessionId=s1`)).json();
+  assert.equal(read.text, '保留');
 });
 
 test('a cross-origin request is forbidden', async (t) => {

@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Notepad",
-    "description": "A per-workspace floating notepad in the session view: jot down problems and next steps, insert the note into the composer with one click, drag, minimize, and hide."
+    "description": "A per-workspace floating notepad in the session view. Enter creates segment cards; insert, replace, or send one or many; sending archives automatically. Archived segments can be shown, hidden, restored, and deleted. Resizable and dark-mode aware."
   }
 }

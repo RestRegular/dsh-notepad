@@ -2,8 +2,10 @@
  * dsh-notepad — offline client smoke test.
  *
  * Loads the real client bundle in a browser-shaped shim with a miniature React
- * runtime, runs apply(ctx), renders the floating notepad, then exercises load,
- * autosave, insert-into-composer, minimize, hide and the global hotkey.
+ * runtime, runs apply(ctx), renders the floating notepad, then exercises the
+ * segmented workflow: load, edit/autosave, Enter split, single/batch insert,
+ * replace, send (auto-archive), archive show/hide/restore/delete, select-all,
+ * collapse, minimize/restore, resize and the global hotkey.
  *
  * Run: node test/client-smoke.mjs
  */
@@ -236,9 +238,24 @@ assert.deepEqual(face.inject, ['slots']);
 // ---------------------------------------------------------------------------
 // Fake services + fetch
 // ---------------------------------------------------------------------------
-let storedText = '初始内容\n第二行';
+let storedSegments = [
+  { id: 's1', text: '第一段内容', archived: false },
+  { id: 's2', text: '第二段内容', archived: false },
+  { id: 'a1', text: '已归档内容', archived: true, archivedAt: '2026-01-01T00:00:00.000Z' },
+];
 let storedMtime = 1000;
 const requests = [];
+const inserted = [];
+const replacedDrafts = [];
+const sent = [];
+let persistedDrafts = 0;
+
+function merge(segments) {
+  return segments
+    .map((segment) => segment.text)
+    .filter((text) => text.trim() !== '')
+    .join('\n\n');
+}
 
 function jsonResponse(data, status = 200) {
   return {
@@ -256,20 +273,35 @@ globalThis.fetch = async (input, init = {}) => {
   }
   if ((init.method ?? 'GET') === 'PUT') {
     const body = JSON.parse(init.body);
-    storedText = body.text;
+    storedSegments = body.segments.map((segment) => ({ ...segment, archived: segment.archived === true }));
     storedMtime += 1;
-    return jsonResponse({ ok: true, root: body.root, text: storedText, mtimeMs: storedMtime, updatedAt: new Date().toISOString() });
+    return jsonResponse({
+      ok: true,
+      root: body.root,
+      segments: storedSegments,
+      text: merge(storedSegments),
+      mtimeMs: storedMtime,
+      updatedAt: new Date().toISOString(),
+    });
   }
-  return jsonResponse({ ok: true, root: ROOT, text: storedText, mtimeMs: storedMtime, updatedAt: new Date().toISOString() });
+  return jsonResponse({
+    ok: true,
+    root: ROOT,
+    segments: storedSegments,
+    text: merge(storedSegments),
+    mtimeMs: storedMtime,
+    updatedAt: new Date().toISOString(),
+  });
 };
 
-const inserted = [];
-let persistedDrafts = 0;
 const inputActions = {
   captureInsertion: () => ({ from: 4, to: 4, draftRev: 7 }),
   insertText(text, span) {
     inserted.push({ text, span });
     return true;
+  },
+  setDraft(text) {
+    replacedDrafts.push(text);
   },
   persistDraft() {
     persistedDrafts += 1;
@@ -295,13 +327,34 @@ const listSource = {
   subscribe: () => () => {},
 };
 
+const conversation = {
+  async send(text) {
+    sent.push(text);
+  },
+};
+const scopedContext = {
+  get(name) { return name === 'conversation' ? conversation : undefined; },
+};
+const sessionFace = {
+  beginSubmission: () => ({ requestId: 'echo-1', abandon() {} }),
+  async prompt(content, mode) {
+    sent.push(content.map((part) => part.text).join(''));
+    return { ok: true, value: { accepted: true, mode } };
+  },
+};
+const sessionsService = {
+  list: listSource,
+  scope: () => scopedContext,
+  binding: () => ({ session: sessionFace }),
+};
+
 const localeRegistered = [];
 const locale = {
   register(namespace, dict) {
     localeRegistered.push({ namespace, dict });
     return () => {};
   },
-  bind(namespace) {
+  bind() {
     const dict = localeRegistered.at(-1)?.dict.zh ?? {};
     return (key, params) => {
       let value = dict[key] ?? key;
@@ -335,7 +388,7 @@ const ctx = {
     if (name === 'slots') return slots;
     if (name === 'locale') return locale;
     if (name === 'uiSession') return { adapter: { current: currentSource } };
-    if (name === 'sessions') return { list: listSource };
+    if (name === 'sessions') return sessionsService;
     return undefined;
   },
   effect(fn) {
@@ -350,6 +403,11 @@ face.apply(ctx);
 assert.deepEqual(injected, ['shell.overlay']);
 assert.equal(styleTags.length, 1, 'styles injected once');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-card'));
+assert.ok(styleTags[0].textContent.includes('var(--dsw-font-family'), 'uses the DSH/system font family');
+assert.ok(!styleTags[0].textContent.includes('ui-monospace'), 'no monospace font remains');
+assert.ok(styleTags[0].textContent.includes('body[data-ds-dark-theme]'), 'dark-mode overrides exist');
+assert.ok(styleTags[0].textContent.includes('transition:height'), 'collapse animation exists');
+assert.ok(styleTags[0].textContent.includes('visibility:hidden'), 'hide animation exists');
 assert.deepEqual(localeRegistered.map((entry) => entry.namespace), ['dsh-notepad']);
 const overlay = registrations.find((entry) => entry.options.name === 'shell.overlay');
 assert.ok(overlay, 'registers shell.overlay');
@@ -379,96 +437,275 @@ function findByTitle(seen, title) {
   return seen.find(({ element }) => element.type === 'button' && element.props.title === title);
 }
 
-const initial = await renderRounds(6);
+function findAllByTitle(seen, title) {
+  return seen.filter(({ element }) => element.type === 'button' && element.props.title === title);
+}
+
+function findByClass(seen, className) {
+  return seen.find(({ element }) => element.props?.className === className);
+}
+
+function textareas(seen) {
+  return seen.filter(({ element }) => element.type === 'textarea');
+}
+
+function archivedCards(seen) {
+  return seen.filter(({ element }) => element.type === 'article' && element.props['data-archived'] === 'true');
+}
+
+async function pressButton(seen, title) {
+  const target = findByTitle(seen, title);
+  assert.ok(target, `${title} button exists`);
+  await target.element.props.onClick();
+}
+
+const initial = await renderRounds(8);
 assert.ok(initial.seen.some(({ element }) => element.type === 'section' && element.props['data-dsh-notepad'] === 'true'), 'card renders');
 assert.ok(initial.text.includes('记事本'), 'title rendered');
 assert.ok(initial.text.includes('demo-workspace'), 'workspace name rendered');
 assert.ok(requests.some((request) => request.method === 'GET' && request.url.includes('session-smoke-1')), 'loads the note for the session');
+assert.equal(textareas(initial.seen).length, 2, 'two active segments render');
+assert.deepEqual(textareas(initial.seen).map(({ element }) => element.props.value), ['第一段内容', '第二段内容']);
+assert.equal(archivedCards(initial.seen).length, 1, 'archived card is present in the document');
+assert.ok(findByTitle(initial.seen, '显示归档（1）'), 'archive toggle shows the archived count');
+assert.ok(initial.text.includes('已保存'), 'status shows saved');
 
-const textarea = initial.seen.find(({ element }) => element.type === 'textarea');
-assert.ok(textarea, 'textarea rendered');
-assert.equal(textarea.element.props.value, storedText, 'loaded note text is shown');
-assert.equal(textarea.element.props.disabled, false);
-
-// Autosave ---------------------------------------------------------------
-await textarea.element.props.onChange({ target: { value: '遇到的问题\n下一步：写测试' } });
-assert.ok(findByTitle(initial.seen, '插入到输入框'));
+// Edit + autosave ---------------------------------------------------------
+const firstTextarea = textareas(initial.seen)[0];
+firstTextarea.element.props.onChange({ target: { value: '第一段改' } });
 await new Promise((resolve) => setTimeout(resolve, 650));
-const afterSave = await renderRounds(2);
+const afterEdit = await renderRounds(2);
 const put = requests.filter((request) => request.method === 'PUT').at(-1);
 assert.ok(put, 'autosave issues a PUT');
 const putBody = JSON.parse(put.body);
-assert.equal(putBody.text, '遇到的问题\n下一步：写测试');
-assert.equal(put.body && putBody.root, ROOT);
+assert.equal(putBody.segments[0].text, '第一段改');
+assert.equal(putBody.segments.length, 3);
+assert.equal(putBody.root, ROOT);
 assert.equal(putBody.sessionId, SESSION);
-assert.ok(afterSave.text.includes('已保存'), 'status shows saved');
+assert.ok(afterEdit.text.includes('已保存'), 'status shows saved after autosave');
 
-// Insert into composer ---------------------------------------------------
-const insertButton = findByTitle(afterSave.seen, '插入到输入框');
-assert.ok(insertButton, 'insert button rendered');
+// Enter splits the first segment -----------------------------------------
+const splitSource = textareas(afterEdit.seen)[0];
+splitSource.element.props.onKeyDown({
+  key: 'Enter',
+  shiftKey: false,
+  ctrlKey: false,
+  metaKey: false,
+  altKey: false,
+  isComposing: false,
+  preventDefault() {},
+  currentTarget: { selectionStart: 2, selectionEnd: 2, value: '第一段改' },
+});
+const afterSplit = await renderRounds(2);
+assert.equal(textareas(afterSplit.seen).length, 3, 'Enter creates a new card');
+assert.deepEqual(
+  textareas(afterSplit.seen).map(({ element }) => element.props.value),
+  ['第一', '段改', '第二段内容'],
+  'Enter splits text at the caret',
+);
+
+// Single insert / replace -------------------------------------------------
+const insertButton = findByTitle(afterSplit.seen, '插入此段');
+assert.ok(insertButton, 'single insert button exists');
 assert.equal(insertButton.element.props.disabled, false);
 await insertButton.element.props.onClick();
-assert.equal(inserted.length, 1);
-assert.equal(inserted[0].text, '遇到的问题\n下一步：写测试');
-assert.deepEqual(inserted[0].span, { from: 4, to: 4, draftRev: 7 });
-assert.equal(persistedDrafts, 1, 'draft persistence is requested after insert');
+assert.equal(inserted.at(-1).text, '第一');
+assert.deepEqual(inserted.at(-1).span, { from: 4, to: 4, draftRev: 7 });
 const afterInsert = await renderRounds(1);
 assert.ok(afterInsert.text.includes('已插入输入框'), 'insert toast shown');
 
-// Minimize ---------------------------------------------------------------
-const minimizeButton = findByTitle(afterInsert.seen, '最小化');
-assert.ok(minimizeButton, 'minimize button rendered');
-minimizeButton.element.props.onClick();
-const minimized = await renderRounds(2);
-const minimizedCard = minimized.seen.find(({ element }) => element.type === 'section' && element.props['data-dsh-notepad'] === 'true');
-assert.equal(minimizedCard.element.props['data-minimized'], 'true');
-assert.equal(minimized.seen.some(({ element }) => element.type === 'textarea'), false);
+const replaceButton = findByTitle(afterInsert.seen, '替换此段');
+assert.ok(replaceButton, 'single replace button exists');
+await replaceButton.element.props.onClick();
+assert.equal(replacedDrafts.at(-1), '第一');
+const afterReplace = await renderRounds(1);
+assert.ok(afterReplace.text.includes('已替换输入框内容'), 'replace toast shown');
+assert.ok(persistedDrafts >= 2, 'draft persistence is requested after insert and replace');
 
-const expandButton = findByTitle(minimized.seen, '展开');
-assert.ok(expandButton, 'expand button appears when minimized');
-expandButton.element.props.onClick();
+// Collapse / expand -------------------------------------------------------
+await pressButton(afterReplace.seen, '折叠');
+const collapsed = await renderRounds(2);
+const collapsedCard = collapsed.seen.find(({ element }) => element.type === 'section' && element.props['data-dsh-notepad'] === 'true');
+assert.equal(collapsedCard.element.props['data-minimized'], 'true');
+assert.equal(collapsedCard.element.props.style.height, '44px', 'collapsed card uses the header height');
+assert.ok(findByTitle(collapsed.seen, '展开'), 'expand button appears');
+
+await pressButton(collapsed.seen, '展开');
 const expanded = await renderRounds(2);
-assert.ok(expanded.seen.some(({ element }) => element.type === 'textarea'), 'textarea returns after expand');
+const expandedCard = expanded.seen.find(({ element }) => element.type === 'section' && element.props['data-dsh-notepad'] === 'true');
+assert.equal(expandedCard.element.props['data-minimized'], 'false');
+assert.notEqual(expandedCard.element.props.style.height, '44px', 'expanded card returns to its stored height');
 
-// Hide / restore ---------------------------------------------------------
-const hideButton = findByTitle(expanded.seen, '隐藏（Ctrl+Shift+N）');
-assert.ok(hideButton, 'hide button rendered');
-hideButton.element.props.onClick();
+// Resize -----------------------------------------------------------------
+const storedBeforeResize = JSON.parse(storage.get('dsh-notepad.ui.v1'));
+const resizeHandle = findByClass(expanded.seen, 'dsh-np-resize');
+assert.ok(resizeHandle, 'resize handle is rendered');
+resizeHandle.element.props.onPointerDown({
+  button: 0,
+  clientX: 600,
+  clientY: 400,
+  preventDefault() {},
+  stopPropagation() {},
+});
+for (const listener of [...(listeners.get('pointermove') ?? [])]) {
+  listener({ clientX: 640, clientY: 430 });
+}
+await renderRounds(2);
+for (const listener of [...(listeners.get('pointerup') ?? [])]) {
+  listener({});
+}
+await renderRounds(2);
+const storedAfterResize = JSON.parse(storage.get('dsh-notepad.ui.v1'));
+assert.equal(storedAfterResize.width, storedBeforeResize.width + 40, 'width follows the resize drag');
+assert.equal(storedAfterResize.height, storedBeforeResize.height + 30, 'height follows the resize drag');
+
+// Hide / restore ----------------------------------------------------------
+await pressButton(expanded.seen, '最小化');
 const hidden = await renderRounds(2);
-assert.equal(hidden.seen.some(({ element }) => element.props?.className === 'dsh-np-card'), false, 'card is gone when hidden');
-const restoreButton = hidden.seen.find(({ element }) => element.props?.className === 'dsh-np-restore');
+const hiddenCard = hidden.seen.find(({ element }) => element.type === 'section' && element.props['data-dsh-notepad'] === 'true');
+assert.ok(hiddenCard, 'hidden card stays mounted for the transition');
+assert.equal(hiddenCard.element.props['data-hidden'], 'true');
+assert.equal(hiddenCard.element.props['aria-hidden'], 'true');
+const restoreButton = findByClass(hidden.seen, 'dsh-np-restore');
 assert.ok(restoreButton, 'restore button rendered while hidden');
+assert.equal(restoreButton.element.props['data-visible'], 'true');
 assert.equal(restoreButton.element.props.title, '显示记事本（Ctrl+Shift+N）');
-restoreButton.element.props.onClick();
+await restoreButton.element.props.onClick();
 const restored = await renderRounds(2);
-assert.ok(restored.seen.some(({ element }) => element.props?.className === 'dsh-np-card'), 'restore brings the card back');
+const restoredCard = restored.seen.find(({ element }) => element.type === 'section' && element.props['data-dsh-notepad'] === 'true');
+assert.equal(restoredCard.element.props['data-hidden'], 'false');
+const hiddenRestoreButton = findByClass(restored.seen, 'dsh-np-restore');
+assert.ok(hiddenRestoreButton, 'restore button stays mounted for its fade-out');
+assert.equal(hiddenRestoreButton.element.props['data-visible'], 'false');
+
+// Archive show / hide -----------------------------------------------------
+await pressButton(restored.seen, '显示归档（1）');
+const archiveShown = await renderRounds(2);
+const archiveSection = findByClass(archiveShown.seen, 'dsh-np-archive');
+assert.ok(archiveSection, 'archive section exists');
+assert.equal(archiveSection.element.props['data-open'], 'true');
+assert.equal(archivedCards(archiveShown.seen).length, 1);
+assert.ok(archiveShown.text.includes('已归档内容'));
+assert.equal(findAllByTitle(archiveShown.seen, '删除此段').length, 1, 'delete exists only on archived cards');
+
+await pressButton(archiveShown.seen, '隐藏归档（1）');
+const archiveHidden = await renderRounds(2);
+const hiddenArchive = findByClass(archiveHidden.seen, 'dsh-np-archive');
+assert.equal(hiddenArchive.element.props['data-open'], 'false');
+await pressButton(archiveHidden.seen, '显示归档（1）');
+const archiveShownAgain = await renderRounds(2);
+
+// Send one segment -> it is archived automatically ------------------------
+const sendOne = findAllByTitle(archiveShownAgain.seen, '发送此段')[0];
+assert.ok(sendOne, 'single send button exists');
+await sendOne.element.props.onClick();
+const afterSendOne = await renderRounds(3);
+assert.equal(sent.at(-1), '第一', 'single segment is sent');
+assert.equal(textareas(afterSendOne.seen).length, 2, 'sent segment left the active list');
+assert.equal(archivedCards(afterSendOne.seen).length, 2, 'sent segment is auto-archived');
+await new Promise((resolve) => setTimeout(resolve, 650));
+const afterSendSave = await renderRounds(1);
+const sendPut = JSON.parse(requests.filter((request) => request.method === 'PUT').at(-1).body);
+assert.ok(sendPut.segments.some((segment) => segment.text === '第一' && segment.archived === true), 'autosave keeps the archived flag');
+
+// Select all + batch replace / insert / send ------------------------------
+const selectAll = afterSendSave.seen.find(({ element }) => element.type === 'input'
+  && element.props.type === 'checkbox'
+  && element.props['aria-label'] === '全选');
+assert.ok(selectAll, 'select-all checkbox exists');
+selectAll.element.props.onChange({ target: { checked: true } });
+const selected = await renderRounds(2);
+assert.ok(selected.text.includes('已选 2 段'), 'select-all selects every active segment');
+const batchReplace = findByTitle(selected.seen, '替换为选中的 2 段');
+assert.ok(batchReplace, 'batch replace button reflects the selection');
+await batchReplace.element.props.onClick();
+assert.equal(replacedDrafts.at(-1), '段改\n\n第二段内容', 'batch replace merges selected segments in order');
+
+const batchInsert = findByTitle(selected.seen, '插入选中的 2 段');
+assert.ok(batchInsert, 'batch insert button reflects the selection');
+await batchInsert.element.props.onClick();
+assert.equal(inserted.at(-1).text, '段改\n\n第二段内容', 'batch insert merges selected segments in order');
+
+const batchSend = findByTitle(selected.seen, '发送选中的 2 段');
+assert.ok(batchSend, 'batch send button reflects the selection');
+await batchSend.element.props.onClick();
+const afterBatchSend = await renderRounds(3);
+assert.equal(sent.at(-1), '段改\n\n第二段内容', 'batch send merges selected segments');
+assert.equal(textareas(afterBatchSend.seen).length, 0, 'all active segments were archived');
+assert.ok(afterBatchSend.text.includes('没有进行中的分段'), 'empty active state is shown');
+assert.equal(archivedCards(afterBatchSend.seen).length, 4, 'all sent segments are archived');
+assert.ok(findByTitle(afterBatchSend.seen, '显示归档（4）') || findByTitle(afterBatchSend.seen, '隐藏归档（4）'), 'archive count updated');
+
+// Delete only archived + undo --------------------------------------------
+const deleteButton = findAllByTitle(afterBatchSend.seen, '删除此段')[0];
+assert.ok(deleteButton, 'archived card exposes delete');
+await deleteButton.element.props.onClick();
+const afterDelete = await renderRounds(2);
+assert.equal(archivedCards(afterDelete.seen).length, 3, 'archived segment deleted');
+assert.ok(afterDelete.text.includes('已删除'));
+const undoButton = afterDelete.seen.find(({ element }) => element.type === 'button' && element.props.className === 'dsh-np-toast-action');
+assert.ok(undoButton, 'delete toast offers undo');
+await undoButton.element.props.onClick();
+const afterUndo = await renderRounds(2);
+assert.equal(archivedCards(afterUndo.seen).length, 4, 'undo restores the archived segment');
+
+// Restore one archived segment -------------------------------------------
+const restoreOne = findAllByTitle(afterUndo.seen, '恢复此段')[0];
+assert.ok(restoreOne, 'archived card exposes restore');
+await restoreOne.element.props.onClick();
+const afterRestore = await renderRounds(2);
+assert.equal(archivedCards(afterRestore.seen).length, 3, 'restored segment leaves the archive');
+assert.equal(textareas(afterRestore.seen).length, 1, 'restored segment returns to the active list');
+
+// Clear archive + undo ----------------------------------------------------
+const clearArchive = afterRestore.seen.find(({ element }) => element.type === 'button'
+  && element.props.className === 'dsh-np-link'
+  && element.props.children === '清空归档');
+assert.ok(clearArchive, 'clear-archive link exists');
+await clearArchive.element.props.onClick();
+const afterClear = await renderRounds(2);
+assert.equal(archivedCards(afterClear.seen).length, 0, 'clear archive removes every archived card');
+assert.ok(afterClear.text.includes('还没有归档的分段'));
+const clearUndo = afterClear.seen.find(({ element }) => element.type === 'button' && element.props.className === 'dsh-np-toast-action');
+assert.ok(clearUndo, 'clear-archive toast offers undo');
+await clearUndo.element.props.onClick();
+const afterClearUndo = await renderRounds(2);
+assert.equal(archivedCards(afterClearUndo.seen).length, 3, 'clear-archive undo restores the archive');
+
+// Copy all ---------------------------------------------------------------
+const copyButton = findByTitle(afterClearUndo.seen, '复制全部');
+assert.ok(copyButton, 'copy-all button exists');
+assert.equal(copyButton.element.props.disabled, false);
+await copyButton.element.props.onClick();
+const afterCopy = await renderRounds(1);
+assert.ok(afterCopy.text.includes('已复制'), 'copy toast shown');
 
 // Global hotkey ----------------------------------------------------------
 const keydown = listeners.get('keydown');
 assert.ok(keydown && keydown.size > 0, 'global keydown listener installed');
 const pressHotkey = () => {
-  for (const listener of keydown) {
+  for (const listener of [...keydown]) {
     listener({ key: 'N', ctrlKey: true, metaKey: false, shiftKey: true, preventDefault() {} });
   }
 };
 pressHotkey();
 const hotkeyHidden = await renderRounds(2);
-assert.equal(hotkeyHidden.seen.some(({ element }) => element.type === 'section'), false, 'hotkey hides the card');
+const hotkeyCard = hotkeyHidden.seen.find(({ element }) => element.type === 'section' && element.props['data-dsh-notepad'] === 'true');
+assert.equal(hotkeyCard.element.props['data-hidden'], 'true', 'hotkey hides the card');
 pressHotkey();
 const hotkeyShown = await renderRounds(2);
-assert.ok(hotkeyShown.seen.some(({ element }) => element.type === 'section'), 'hotkey shows the card again');
+const hotkeyShownCard = hotkeyShown.seen.find(({ element }) => element.type === 'section' && element.props['data-dsh-notepad'] === 'true');
+assert.equal(hotkeyShownCard.element.props['data-hidden'], 'false', 'hotkey shows the card again');
 
 // UI persistence ---------------------------------------------------------
 const storedUi = JSON.parse(storage.get('dsh-notepad.ui.v1'));
 assert.equal(typeof storedUi.x, 'number');
 assert.equal(typeof storedUi.y, 'number');
+assert.equal(storedUi.width, storedAfterResize.width);
+assert.equal(storedUi.height, storedAfterResize.height);
 assert.equal(storedUi.hidden, false);
 assert.equal(storedUi.minimized, false);
-
-// Copy fallback ----------------------------------------------------------
-const copyButton = findByTitle(hotkeyShown.seen, '复制全部');
-assert.ok(copyButton, 'copy button rendered');
-assert.equal(copyButton.element.props.disabled, false);
+assert.equal(storedUi.showArchive, true);
 
 for (const cleanup of cleanups) {
   try { cleanup(); } catch { /* ignore */ }

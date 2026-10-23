@@ -28,7 +28,7 @@ import {
 const ROUTE = '/dsh-notepad/api';
 
 /** Plugin version mirrored in package.json. */
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 /** Request body cap. */
 const BODY_LIMIT = 1024 * 1024;
@@ -218,7 +218,9 @@ async function dispatchRequest(ctx, req, res) {
   if (req.method === 'PUT') {
     const body = await readJsonBody(req);
     const root = await resolveRequestRoot(ctx, body);
-    const note = await writeNote(root, body.text, { maxBytes: DEFAULT_MAX_BYTES });
+    const note = await writeNote(root, Array.isArray(body.segments) ? body.segments : body.text, {
+      maxBytes: DEFAULT_MAX_BYTES,
+    });
     sendJson(res, { ok: true, root, ...note });
     return;
   }

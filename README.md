@@ -1,8 +1,8 @@
 # dsh-notepad
 
-在 DeepSeek Harness 的会话界面里放一张**属于当前工作区**的便签浮窗：记录开发中遇到的问题、踩过的坑，或者下一阶段要做的事；需要时一键把整段内容插进对话输入框。
+在 DeepSeek Harness 的会话界面里放一张**属于当前工作区**的分段便签浮窗：一行一个问题、一段一个卡片，回车就能新建下一段；需要时把某一段、或勾选后的多段一起插入 / 替换 / 发送到对话框。
 
-> A per-workspace floating notepad for DeepSeek Harness sessions. Jot down problems and next steps, insert the whole note into the composer with one click, drag it anywhere, minimize it, or hide it with a shortcut. Notes live in `<workspace>/.dsh/notepad.json` and are shared by every session opened from that workspace.
+> A per-workspace floating segmented notepad for DeepSeek Harness sessions. Enter creates a new segment card; insert, replace, or send one segment or a multi-selection; sending archives the segment automatically. Notes live in `<workspace>/.dsh/notepad.json` and are shared by every session opened from that workspace.
 
 ## 安装
 
@@ -12,19 +12,59 @@ dsh plugin --profile web add @restregular/dsh-notepad
 
 安装后重启 / 重新打开 DSH（或刷新页面），打开任意一个会话即可看到右下角的「记事本」浮窗。
 
+## 界面
+
+```
+┌────────────────────────────────────────────┐
+│ ● 记事本  [workspace]  复制 归档+ 折叠 最小化 │
+│ ☐ 全选   勾选分段可批量操作   ↙ ⇄ ➤ 归档       │
+│ ┌────────────────────────────────────────┐ │
+│ │ ☐ 01                               ↙ ⇄ ➤ 归档 │
+│ │ 记录第一段……                               │ │
+│ └────────────────────────────────────────┘ │
+│ ┌────────────────────────────────────────┐ │
+│ │ ☐ 02                               ↙ ⇄ ➤ 归档 │
+│ │ 记录第二段……                               │ │
+│ └────────────────────────────────────────┘ │
+│  已保存 · 42 字符 · 2 段      Enter 新建分段… │
+└────────────────────────────────────────────┘
+```
+
+- **回车 / Enter**：把当前分段从光标处拆开，创建一张新的分段卡片（光标前的文字留在原卡片，光标后的文字进入新卡片）。在末尾回车就是新建一个空分段。
+- **Shift + Enter**：分段内换行。
+- **Ctrl / Cmd + Enter**：把当前分段（有勾选时改为勾选的多段）插入对话框。
+- 卡片上的 **↙** 插入此段；**⇄** 用此段替换整个对话框内容；**➤** 直接发送此段。
+
 ## 功能
 
 | 操作 | 入口 | 说明 |
 | --- | --- | --- |
-| 记录 / 修改 | 点击文本区直接输入 | 停止输入约 0.5 秒后自动保存，脚注显示「保存中 / 已保存 / 保存失败」 |
-| 插入到输入框 | 标题栏的向下箭头按钮，或 `Ctrl/Cmd + Enter` | 把整段笔记插入当前会话的输入框（只插入，不发送）；输入框暂时不可用时自动复制到剪贴板 |
-| 复制全部 | 标题栏复制按钮 | 复制整段笔记 |
-| 拖动位置 | 按住标题栏拖动 | 位置按浏览器记忆，刷新后仍在原处 |
-| 最小化 / 展开 | 标题栏的减号按钮 | 只保留标题栏，内容仍在后台自动保存 |
-| 隐藏 / 显示 | 标题栏的隐藏按钮，或 `Ctrl/Cmd + Shift + N` | 隐藏后只在右下角保留一个小图标；再按快捷键或点图标恢复 |
-| 查看工作区 | 标题栏的工作区徽标 | 悬停可看完整路径 |
+| 新建分段 | 标题栏 `+`，或分段末尾按回车 | 新卡片自动获得焦点 |
+| 编辑分段 | 点击卡片文本区 | 停止输入约 0.5 秒后自动保存 |
+| 单段插入 | 卡片上的左下箭头 | 插入到当前会话输入框光标处，不发送 |
+| 多段插入 | 勾选分段 → 工具栏左下箭头，或全选后操作 | 按卡片顺序用空行合并后一次插入 |
+| 替换对话框 | 卡片上的 ⇄，或勾选后工具栏 ⇄ | 用该段 / 多段合并内容替换整个输入框 |
+| 单段发送 | 卡片上的纸飞机 | 直接发进当前会话；发送成功后自动归档该段 |
+| 多段发送 | 勾选分段 → 工具栏纸飞机 | 合并成一条消息发送；发送成功后自动归档这些段 |
+| 全选 | 列表上方「全选」复选框 | 一键选中所有未归档分段，再点一次取消 |
+| 归档 | 卡片上的归档图标，或工具栏归档图标 | 把分段移入归档区（不发送） |
+| 显示 / 隐藏归档 | 标题栏归档图标（带数量角标） | 展开 / 收起归档区，状态按浏览器记忆 |
+| 恢复 | 归档卡片上的恢复图标 | 把归档分段放回未归档列表 |
+| 删除 | 归档卡片上的垃圾桶 | **只有已归档分段可以删除**，可撤销 |
+| 清空归档 | 归档区标题「清空归档」 | 批量删除归档，可撤销 |
+| 复制全部 | 标题栏复制按钮 | 复制所有分段（含归档），用空行合并 |
+| 调整尺寸 | 拖动右下角斜纹手柄 | 宽高按浏览器记忆，最小 320 × 240 |
+| 折叠 / 展开 | 标题栏上下折叠箭头 | 只保留标题栏，内容继续自动保存 |
+| 最小化 / 恢复 | 标题栏最小化图标，或 `Ctrl/Cmd + Shift + N` | 收成右下角小图标，带平滑过渡 |
+| 拖动位置 | 按住标题栏拖动 | 位置按浏览器记忆 |
 
 同一个工作区里的不同会话共用同一份笔记：在 A 会话写的内容，切到同工作区的 B 会话仍然在。切换工作区时浮窗自动加载对应工作区的文件。
+
+## 深色模式与字体
+
+- 浮窗使用 DSH 主题变量（`--dsw-alias-*`）和 DSH 的正文字体变量 `--dsw-font-family`，与系统 / 设置里的界面字体一致，不再使用等宽字体。
+- 深色模式跟随宿主 `body[data-ds-dark-theme]`，对卡片阴影、选中底色、归档弱化等做了单独适配。
+- 折叠、显示 / 隐藏、归档展开都有过渡动画，并尊重 `prefers-reduced-motion`。
 
 ## 数据与边界
 
@@ -32,23 +72,27 @@ dsh plugin --profile web add @restregular/dsh-notepad
 
   ```json
   {
-    "version": 1,
-    "text": "遇到的问题\n下一步：补测试",
-    "updatedAt": "2026-10-23T02:36:21.000Z"
+    "version": 2,
+    "segments": [
+      { "id": "seg-1", "text": "遇到的问题\n下一步：补测试" },
+      { "id": "seg-2", "text": "已发送的分段", "archived": true, "archivedAt": "2026-10-23T03:20:00.000Z" }
+    ],
+    "text": "遇到的问题\n下一步：补测试\n\n已发送的分段",
+    "updatedAt": "2026-10-23T03:20:01.000Z"
   }
   ```
 
-  如果该文件被手动改成纯文本，浮窗会把它当作笔记正文读出来，不会丢内容。
-- 浮窗位置、最小化状态、隐藏状态保存在浏览器 `localStorage` 的 `dsh-notepad.ui.v1` 中，按浏览器/设备生效，不写入工作区。
-- 每个工作区一份笔记，最多 **512 KB**（输入框限制 16 万字符）。笔记是纯文本，不做 Markdown 渲染。
+  `text` 是 `segments` 用空行合并后的副本，方便人工查看，也兼容旧版本。旧版单段文件（只有 `text`）和手动改成纯文本的文件会在读取时迁移成一个分段。
+- 浮窗位置、尺寸、折叠 / 最小化 / 隐藏状态、归档区是否展开保存在浏览器 `localStorage` 的 `dsh-notepad.ui.v1` 中，按浏览器 / 设备生效，不写入工作区。
+- 每个工作区一份笔记，最多 **200 段 / 512 KB**（单段输入框限制 16 万字符）。笔记是纯文本，不做 Markdown 渲染。
 - 浮窗只在**会话视图**出现：打开设置等非会话页面时自动隐藏，回到会话后恢复。
 - 写入走宿主同源回环路由 `/dsh-notepad/api/note`，只接受 127.0.0.1 的同源请求，并且只允许当前会话的 cwd 或已注册工作区，不能用来读写工作区里的其它文件。
 - 窗口重新获得焦点时，如果本地没有未保存的修改，会自动读取磁盘上的最新内容；多窗口同时编辑时以最后一次保存为准。
 
 ## 实现
 
-- **Host**（`index.js` + `lib/note-store.js`）：`ctx.inject(['webServer'])` 注册 `/dsh-notepad/api` 下的 `GET/PUT /note`，用临时文件 + rename 原子写入 `.dsh/notepad.json`。
-- **Client**（`client.js`）：整个 bundle 包在 IIFE 里；通过 `shell.overlay` 注册浮窗，读取 `uiSession.adapter.current` 得到当前会话与工作区，通过会话绑定里的 `inputActions.captureInsertion()/insertText()` 写入输入框。没有 `inputActions` 时降级为复制。
+- **Host**（`index.js` + `lib/note-store.js`）：`ctx.inject(['webServer'])` 注册 `/dsh-notepad/api` 下的 `GET/PUT /note`，用临时文件 + rename 原子写入 `.dsh/notepad.json`；`GET` 返回 `segments` 与合并后的 `text`，`PUT` 接受 `{ segments: [...] }`，也兼容旧的 `{ text }`。
+- **Client**（`client.js`）：整个 bundle 包在 IIFE 里；通过 `shell.overlay` 注册浮窗，读取 `uiSession.adapter.current` 得到当前会话与工作区。插入 / 替换通过会话绑定里的 `inputActions.captureInsertion()/insertText()` 与 `setDraft()`；发送优先走 `sessions.scope(id).conversation.send()`，并回退到 `sessions.binding(id).session.prompt()`。
 - 文案通过宿主 `locale` 服务注册中英文；找不到 locale 时按浏览器语言回退。
 
 ## 开发
@@ -72,13 +116,14 @@ node test/package.test.mjs
 npm test
 ```
 
-`test/client-smoke.mjs` 会真正执行 `apply(ctx)` 并渲染浮窗，覆盖：加载、自动保存、插入输入框、最小化、隐藏/恢复、全局快捷键、重复执行 bundle 的兼容性。
+`test/client-smoke.mjs` 会真正执行 `apply(ctx)` 并渲染浮窗，覆盖：分段加载、编辑自动保存、回车拆分、单段/多段插入与替换、单段/多段发送与自动归档、归档显示隐藏、归档恢复与删除（含撤销）、全选、折叠、最小化 / 恢复、拖动调整尺寸、全局快捷键、深色模式与字体 CSS、重复执行 bundle 的兼容性。
 
 ## 已知限制
 
-- 浮窗不会自动把内容推给 Agent；需要让 Agent 看到时，用「插入到输入框」或让 Agent 读取 `.dsh/notepad.json`。
-- 不做富文本、附件、多便签或跨工作区共享。
-- 位置是全局的（不按工作区分别记忆）；如果同时打开多个 DSH 窗口，它们在同一个浏览器里共享这份位置设置。
+- 浮窗不会自动把内容推给 Agent；发送使用当前会话的排队发送，需要 Agent 可接收消息。
+- 发送按钮依赖 DSH 的会话接口；接口不可用时降级为插入输入框并提示。
+- 不做富文本、附件或跨工作区共享。
+- 位置和尺寸是全局的（不按工作区分别记忆）；如果同时打开多个 DSH 窗口，它们在同一个浏览器里共享这份设置。
 
 ## License
 

@@ -21,6 +21,13 @@ assert.match(manifest.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u);
 assert.equal(manifest.type, 'module');
 assert.equal(manifest.private, undefined, 'a published package must not be private');
 
+// The Host half advertises the same version as the manifest ------------------
+const hostSource = readFileSync(path.join(ROOT, 'index.js'), 'utf8');
+assert.ok(
+  hostSource.includes(`const VERSION = '${manifest.version}';`),
+  'index.js VERSION must match package.json version',
+);
+
 for (const key of ['.', './client', './cordis.patch.yml', './package.json']) {
   const target = manifest.exports?.[key];
   assert.equal(typeof target, 'string', `exports["${key}"] is missing`);

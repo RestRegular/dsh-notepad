@@ -1,5 +1,6 @@
 node_modules/
 .tmp/
+.dsh/
 .dsh-ops/
 .dsh-probe/
 preview/
