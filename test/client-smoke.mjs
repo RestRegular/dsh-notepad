@@ -633,6 +633,12 @@ assert.ok(styleTags[0].textContent.includes('.dsh-np-toolbar-actions') && styleT
   'the action buttons sit below the left-hand text');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-selectall{position:relative;z-index:2'),
   'the select-all text covers overflowing actions');
+assert.ok(styleTags[0].textContent.includes(
+  'background:color-mix(in srgb,var(--np-surface) 80%,transparent);backdrop-filter:saturate(1.15) blur(var(--np-blur))'),
+'the select-all label uses a frosted-glass surface instead of an opaque block');
+assert.ok(styleTags[0].textContent.includes(
+  '.dsh-np-selectall::after{content:"";position:absolute;right:-12px;top:0;bottom:0;width:12px;background:linear-gradient(90deg,color-mix(in srgb,var(--np-surface) 80%,transparent),transparent)'),
+'the selection label fades into the glass edge');
 assert.ok(styleTags[0].textContent.includes('border-bottom:1px solid var(--dsw-alias-border-l1') && styleTags[0].textContent.includes('overflow:hidden'),
   'the button bar clips overflow instead of scrolling');
 assert.ok(styleTags[0].textContent.includes('padding:8px 2px 8px 0'),
