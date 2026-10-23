@@ -51,7 +51,7 @@ test('ping identifies the plugin', async (t) => {
   const body = await response.json();
   assert.equal(body.ok, true);
   assert.equal(body.plugin, 'dsh-notepad');
-  assert.equal(body.version, '0.3.0');
+  assert.equal(body.version, '0.3.1');
   assert.equal(body.noteVersion, NOTE_VERSION);
   assert.deepEqual(body.imageTypes, ['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
   assert.equal(body.maxImageBytes, 20 * 1024 * 1024);

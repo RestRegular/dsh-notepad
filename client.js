@@ -108,8 +108,8 @@ window.__ModuleLoader__.load({
         archived: '归档',
         archivedToast: '已归档，可在归档中查看',
         archivedCount: '已归档 {n} 段',
-        showArchive: '显示归档（{n}）',
-        hideArchive: '隐藏归档（{n}）',
+        showArchive: '显示归档',
+        hideArchive: '隐藏归档',
         archiveCount: '归档 · {n}',
         archiveEmpty: '还没有归档的分段',
         noActive: '没有进行中的分段',
@@ -193,8 +193,8 @@ window.__ModuleLoader__.load({
         archived: 'Archived',
         archivedToast: 'Archived; available under Archive',
         archivedCount: 'Archived {n}',
-        showArchive: 'Show archive ({n})',
-        hideArchive: 'Hide archive ({n})',
+        showArchive: 'Show archive',
+        hideArchive: 'Hide archive',
         archiveCount: 'Archive · {n}',
         archiveEmpty: 'Nothing archived yet',
         noActive: 'No active segments',
@@ -531,7 +531,6 @@ window.__ModuleLoader__.load({
 .dsh-np-btn[data-accent=true]:hover:not(:disabled){background:color-mix(in srgb,var(--np-accent) 88%,#000);color:var(--np-accent-fg)}
 .dsh-np-btn:disabled{opacity:.38;cursor:default;background:transparent;color:var(--dsw-alias-label-tertiary,#6b7280)}
 .dsh-np-btn:focus-visible,.dsh-np-segbtn:focus-visible,.dsh-np-link:focus-visible,.dsh-np-empty-add:focus-visible,.dsh-np-toast-action:focus-visible,.dsh-np-selectall input:focus-visible,.dsh-np-check input:focus-visible,.dsh-np-restore:focus-visible,.dsh-np-img-open:focus-visible,.dsh-np-img-remove:focus-visible{outline:2px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#4176e6));outline-offset:-2px}
-.dsh-np-badge{position:absolute;top:2px;right:2px;min-width:13px;height:13px;padding:0 3px;box-sizing:border-box;border-radius:7px;background:var(--np-accent);color:var(--np-accent-fg);font-size:9px;font-weight:600;line-height:13px;text-align:center;font-variant-numeric:tabular-nums}
 .dsh-np-body{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;padding:8px 10px 0;opacity:1;transition:opacity .16s ease,visibility 0s linear 0s}
 .dsh-np-card[data-minimized=true] .dsh-np-body{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .16s ease,visibility 0s linear .16s}
 .dsh-np-tools{display:flex;align-items:center;gap:4px;flex:none;padding:0 2px 7px;border-bottom:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08))}
@@ -1921,9 +1920,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         statusText = clock === '' ? t('saved') : `${t('saved')} · ${clock}`;
       } else statusText = t('empty');
 
-      const archiveButtonTitle = ui.showArchive
-        ? t('hideArchive', { n: archivedSegments.length })
-        : t('showArchive', { n: archivedSegments.length });
+      const archiveButtonTitle = ui.showArchive ? t('hideArchive') : t('showArchive');
 
       const header = h(
         'div',
@@ -1956,9 +1953,6 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             onClick: toggleArchive,
           },
           h(ArchiveIcon, { size: 15 }),
-          archivedSegments.length > 0
-            ? h('span', { className: 'dsh-np-badge' }, String(archivedSegments.length))
-            : null,
         ),
         h(
           'button',

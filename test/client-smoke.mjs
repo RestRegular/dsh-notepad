@@ -496,7 +496,9 @@ assert.ok(requests.some((request) => request.method === 'GET' && request.url.inc
 assert.equal(textareas(initial.seen).length, 2, 'two active segments render');
 assert.deepEqual(textareas(initial.seen).map(({ element }) => element.props.value), ['第一段内容', '第二段内容']);
 assert.equal(archivedCards(initial.seen).length, 1, 'archived card is present in the document');
-assert.ok(findByTitle(initial.seen, '显示归档（1）'), 'archive toggle shows the archived count');
+assert.ok(findByTitle(initial.seen, '显示归档'), 'archive toggle is present without a count badge');
+assert.ok(!initial.seen.some(({ element }) => element.props?.className === 'dsh-np-badge'), 'archive count badge is gone');
+assert.ok(!initial.text.includes('显示归档（1）'), 'archive toggle title omits the count');
 assert.ok(initial.text.includes('已保存'), 'status shows saved');
 
 // Edit + autosave ---------------------------------------------------------
@@ -608,7 +610,7 @@ assert.ok(hiddenRestoreButton, 'restore button stays mounted for its fade-out');
 assert.equal(hiddenRestoreButton.element.props['data-visible'], 'false');
 
 // Archive show / hide -----------------------------------------------------
-await pressButton(restored.seen, '显示归档（1）');
+await pressButton(restored.seen, '显示归档');
 const archiveShown = await renderRounds(2);
 const archiveSection = findByClass(archiveShown.seen, 'dsh-np-archive');
 assert.ok(archiveSection, 'archive section exists');
@@ -617,11 +619,11 @@ assert.equal(archivedCards(archiveShown.seen).length, 1);
 assert.ok(archiveShown.text.includes('已归档内容'));
 assert.equal(findAllByTitle(archiveShown.seen, '删除此段').length, 1, 'delete exists only on archived cards');
 
-await pressButton(archiveShown.seen, '隐藏归档（1）');
+await pressButton(archiveShown.seen, '隐藏归档');
 const archiveHidden = await renderRounds(2);
 const hiddenArchive = findByClass(archiveHidden.seen, 'dsh-np-archive');
 assert.equal(hiddenArchive.element.props['data-open'], 'false');
-await pressButton(archiveHidden.seen, '显示归档（1）');
+await pressButton(archiveHidden.seen, '显示归档');
 const archiveShownAgain = await renderRounds(2);
 
 // Send one segment -> it is archived automatically ------------------------
@@ -663,7 +665,7 @@ assert.equal(sent.at(-1), '段改\n\n第二段内容', 'batch send merges select
 assert.equal(textareas(afterBatchSend.seen).length, 0, 'all active segments were archived');
 assert.ok(afterBatchSend.text.includes('没有进行中的分段'), 'empty active state is shown');
 assert.equal(archivedCards(afterBatchSend.seen).length, 4, 'all sent segments are archived');
-assert.ok(findByTitle(afterBatchSend.seen, '显示归档（4）') || findByTitle(afterBatchSend.seen, '隐藏归档（4）'), 'archive count updated');
+assert.ok(findByTitle(afterBatchSend.seen, '显示归档') || findByTitle(afterBatchSend.seen, '隐藏归档'), 'archive toggle remains after batch send');
 
 // Delete only archived + undo --------------------------------------------
 const deleteButton = findAllByTitle(afterBatchSend.seen, '删除此段')[0];

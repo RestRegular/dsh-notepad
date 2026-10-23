@@ -36,7 +36,7 @@ import {
 const ROUTE = '/dsh-notepad/api';
 
 /** Plugin version mirrored in package.json. */
-const VERSION = '0.3.0';
+const VERSION = '0.3.1';
 
 /** Request body cap for note writes. */
 const BODY_LIMIT = 1024 * 1024;
