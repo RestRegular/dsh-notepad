@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Notepad",
-    "description": "A per-workspace floating notepad in the session view. Enter creates segment cards; paste or pick images as path-based attachment chips; insert, replace, or send one or many; sending archives automatically. Archived segments can be shown, hidden, restored, and deleted. Resizable and dark-mode aware."
+    "description": "A per-workspace floating notepad in the session view. New segment cards lead the list, each card has an editable title; click an index to select, drag to reorder, merge a selection, and improve one or all cards with AI. Paste or pick images as path-based chips; removing a chip cleans up plugin-owned files. Pending counts appear on the hidden launcher and the sidebar workspace row. Insert, replace, or send one or many; sending archives automatically. Archived segments can be shown, hidden, restored, and deleted. Resizable and dark-mode aware."
   }
 }

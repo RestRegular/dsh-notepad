@@ -142,6 +142,22 @@ const conversationNode = {
   getBoundingClientRect: () => ({ width: 900, height: 700, top: 0, left: 0, right: 900, bottom: 700 }),
 };
 
+function makeWorkspaceRow(key) {
+  const attributes = { 'data-row-key': `workspace:${key}` };
+  return {
+    attributes,
+    getAttribute(name) { return Object.prototype.hasOwnProperty.call(attributes, name) ? attributes[name] : null; },
+    setAttribute(name, value) { attributes[name] = String(value); },
+    removeAttribute(name) { delete attributes[name]; },
+  };
+}
+const sidebarRows = [makeWorkspaceRow('ws-demo'), makeWorkspaceRow('ws-other')];
+globalThis.MutationObserver = class MutationObserver {
+  constructor(callback) { this.callback = callback; }
+  observe() {}
+  disconnect() {}
+};
+
 const documentShim = {
   head: { appendChild(node) { styleTags.push(node); } },
   body: { appendChild() {}, removeChild() {} },
@@ -161,6 +177,11 @@ const documentShim = {
   },
   querySelector(selector) {
     return selector === '[data-conversation-content]' ? conversationNode : null;
+  },
+  querySelectorAll(selector) {
+    if (selector === '[data-row-key^="workspace:"]') return sidebarRows;
+    if (selector === '[data-conversation-content]') return [conversationNode];
+    return [];
   },
   addEventListener: addListener,
   removeEventListener: removeListener,
@@ -250,9 +271,9 @@ assert.deepEqual(face.inject, ['slots']);
 // Fake services + fetch
 // ---------------------------------------------------------------------------
 let storedSegments = [
-  { id: 's1', text: '第一段内容', archived: false },
-  { id: 's2', text: '第二段内容', archived: false },
-  { id: 'a1', text: '已归档内容', archived: true, archivedAt: '2026-01-01T00:00:00.000Z' },
+  { id: 's1', text: '第一段内容', createdAt: '2026-01-01T00:00:02.000Z', archived: false },
+  { id: 's2', text: '第二段内容', createdAt: '2026-01-01T00:00:01.000Z', archived: false },
+  { id: 'a1', text: '已归档内容', createdAt: '2026-01-01T00:00:00.000Z', archived: true, archivedAt: '2026-01-01T00:00:00.000Z' },
 ];
 let storedMtime = 1000;
 const requests = [];
@@ -261,6 +282,9 @@ const replacedDrafts = [];
 const sent = [];
 let persistedDrafts = 0;
 let uploadedImages = 0;
+const deletedImages = [];
+const optimizeRequests = [];
+const unsentRequests = [];
 
 function merge(segments) {
   return segments
@@ -286,6 +310,11 @@ globalThis.fetch = async (input, init = {}) => {
   const url = new URL(String(input), 'http://127.0.0.1:1');
   requests.push({ url: url.pathname + url.search, method: init.method ?? 'GET', body: init.body });
   if (url.pathname === '/dsh-notepad/api/image') {
+    if ((init.method ?? 'POST') === 'DELETE') {
+      const body = JSON.parse(init.body);
+      deletedImages.push(body.path);
+      return jsonResponse({ ok: true, root: body.root, deleted: true });
+    }
     const body = JSON.parse(init.body);
     uploadedImages += 1;
     return jsonResponse({
@@ -296,6 +325,21 @@ globalThis.fetch = async (input, init = {}) => {
       mime: body.mime ?? 'image/png',
       size: 4,
     });
+  }
+  if (url.pathname === '/dsh-notepad/api/unsent') {
+    unsentRequests.push(url.search);
+    return jsonResponse({
+      ok: true,
+      workspaces: [
+        { id: 'ws-demo', path: ROOT, title: 'demo', count: 1 },
+        { id: 'ws-other', path: 'D:\\Projects\\other', title: 'other', count: 2 },
+      ],
+    });
+  }
+  if (url.pathname === '/dsh-notepad/api/optimize') {
+    const body = JSON.parse(init.body);
+    optimizeRequests.push(body);
+    return jsonResponse({ ok: true, root: body.root, text: `优化：${body.text}` });
   }
   if (url.pathname !== '/dsh-notepad/api/note') {
     return jsonResponse({ ok: false, error: 'not found' }, 404);
@@ -474,6 +518,10 @@ function findByClass(seen, className) {
   return seen.find(({ element }) => element.props?.className === className);
 }
 
+function findAllByClass(seen, className) {
+  return seen.filter(({ element }) => element.props?.className === className);
+}
+
 function textareas(seen) {
   return seen.filter(({ element }) => element.type === 'textarea');
 }
@@ -500,6 +548,9 @@ assert.ok(findByTitle(initial.seen, '显示归档'), 'archive toggle is present 
 assert.ok(!initial.seen.some(({ element }) => element.props?.className === 'dsh-np-badge'), 'archive count badge is gone');
 assert.ok(!initial.text.includes('显示归档（1）'), 'archive toggle title omits the count');
 assert.ok(initial.text.includes('已保存'), 'status shows saved');
+assert.equal(sidebarRows[0].attributes['data-np-unsent'], '2', 'the current workspace row shows its pending count');
+assert.equal(sidebarRows[1].attributes['data-np-unsent'], '2', 'other workspace rows keep their own counts');
+assert.ok(unsentRequests.length > 0, 'sidebar counts are fetched');
 
 // Edit + autosave ---------------------------------------------------------
 const firstTextarea = textareas(initial.seen)[0];
@@ -601,6 +652,9 @@ const restoreButton = findByClass(hidden.seen, 'dsh-np-restore');
 assert.ok(restoreButton, 'restore button rendered while hidden');
 assert.equal(restoreButton.element.props['data-visible'], 'true');
 assert.equal(restoreButton.element.props.title, '显示记事本（Ctrl+Shift+N）');
+const restoreBadge = findByClass(hidden.seen, 'dsh-np-restore-badge');
+assert.ok(restoreBadge, 'the hidden restore button shows a pending badge');
+assert.equal(restoreBadge.element.props.children, '3', 'the badge counts unsent active segments');
 await restoreButton.element.props.onClick();
 const restored = await renderRounds(2);
 const restoredCard = restored.seen.find(({ element }) => element.type === 'section' && element.props['data-dsh-notepad'] === 'true');
@@ -769,6 +823,10 @@ await removeImageButtons.at(-1).element.props.onClick();
 const afterRemoveImage = await renderRounds(2);
 assert.ok(afterRemoveImage.text.includes('1 张图片'), 'removing a chip updates the footer count');
 assert.equal(afterRemoveImage.seen.filter(({ element }) => element.type === 'img').length, 1, 'removed image card is gone');
+assert.ok(
+  deletedImages.includes('.dsh/notepad/images/uploaded-1.png'),
+  'removing a plugin-owned image chip deletes its stored file',
+);
 await new Promise((resolve) => setTimeout(resolve, 650));
 await renderRounds(1);
 const imagePut = JSON.parse(requests.filter((request) => request.method === 'PUT').at(-1).body);
@@ -782,6 +840,104 @@ const afterUnsupported = await renderRounds(1);
 assert.ok(afterUnsupported.text.includes('只支持 PNG / JPEG / WebP / GIF 图片'), 'unsupported files are rejected with feedback');
 assert.ok(!afterUnsupported.text.includes('2 张图片'), 'unsupported files are not attached');
 
+// New segments, titles, selection by index, merge, AI and reorder ----------
+await pressButton(afterUnsupported.seen, '新建分段');
+const afterAddOne = await renderRounds(2);
+await pressButton(afterAddOne.seen, '新建分段');
+const afterAddTwo = await renderRounds(2);
+assert.equal(textareas(afterAddTwo.seen).length, 3, 'new segments are created');
+assert.deepEqual(textareas(afterAddTwo.seen).map(({ element }) => element.props.value), ['', '', '第一'], 'new segments land on top');
+
+const firstNew = textareas(afterAddTwo.seen)[0];
+const secondNew = textareas(afterAddTwo.seen)[1];
+firstNew.element.props.onChange({ target: { value: 'A' } });
+const afterA = await renderRounds(1);
+secondNew.element.props.onChange({ target: { value: 'B' } });
+const afterAB = await renderRounds(1);
+assert.deepEqual(textareas(afterAB.seen).map(({ element }) => element.props.value), ['A', 'B', '第一']);
+
+const titleInputs = findAllByClass(afterAB.seen, 'dsh-np-title-input');
+assert.equal(titleInputs.length, 3, 'each active card exposes a title input');
+titleInputs[0].element.props.onChange({ target: { value: '合并标题' } });
+const afterTitle = await renderRounds(1);
+
+const indexes = findAllByClass(afterTitle.seen, 'dsh-np-index');
+assert.equal(indexes.length, 3, 'each card exposes a clickable index');
+indexes[0].element.props.onClick();
+const afterSelectOne = await renderRounds(1);
+const selectOneIndexes = findAllByClass(afterSelectOne.seen, 'dsh-np-index');
+selectOneIndexes[1].element.props.onClick();
+const afterSelectTwo = await renderRounds(1);
+assert.ok(afterSelectTwo.text.includes('已选 2 段'), 'clicking indexes selects segments');
+
+const mergeButton = findByTitle(afterSelectTwo.seen, '合并选中的 2 段');
+assert.ok(mergeButton, 'merge button reflects the selection');
+await mergeButton.element.props.onClick();
+const afterMerge = await renderRounds(2);
+assert.deepEqual(
+  textareas(afterMerge.seen).map(({ element }) => element.props.value),
+  ['A\n\nB', '第一'],
+  'merging keeps the merged card at the topmost selected position',
+);
+assert.equal(findAllByClass(afterMerge.seen, 'dsh-np-title-input')[0].element.props.value, '合并标题', 'merged card keeps the titles');
+
+const optimizeOne = findAllByTitle(afterMerge.seen, 'AI 优化此段')[0];
+assert.ok(optimizeOne, 'each card exposes an AI optimize button');
+await optimizeOne.element.props.onClick();
+const afterOptimizeOne = await renderRounds(3);
+assert.equal(optimizeRequests.at(-1).text, 'A\n\nB', 'the AI request carries the card text');
+assert.equal(optimizeRequests.at(-1).title, '合并标题', 'the AI request carries the card title');
+assert.deepEqual(
+  textareas(afterOptimizeOne.seen).map(({ element }) => element.props.value),
+  ['优化：A\n\nB', '第一'],
+  'single-card AI optimization replaces only that card',
+);
+
+const optimizeAllButton = findByTitle(afterOptimizeOne.seen, 'AI 优化全部分段');
+assert.ok(optimizeAllButton, 'the batch toolbar exposes AI optimize all');
+const optimizeCountBefore = optimizeRequests.length;
+await optimizeAllButton.element.props.onClick();
+const afterOptimizeAll = await renderRounds(5);
+assert.equal(optimizeRequests.length - optimizeCountBefore, 2, 'optimize all visits every non-empty active card');
+assert.deepEqual(
+  textareas(afterOptimizeAll.seen).map(({ element }) => element.props.value),
+  ['优化：优化：A\n\nB', '优化：第一'],
+  'optimize all rewrites each card in place',
+);
+
+const beforeReorder = findAllByClass(afterOptimizeAll.seen, 'dsh-np-index');
+beforeReorder[0].element.props.onDragStart({ dataTransfer: { setData() {}, effectAllowed: 'move' } });
+const activeArticles = afterOptimizeAll.seen.filter(({ element }) =>
+  element.type === 'article' && element.props['data-archived'] === 'false');
+assert.equal(activeArticles.length, 2, 'two active cards remain');
+const dragOver = {
+  dataTransfer: { types: ['application/x-dsh-notepad-segment'] },
+  currentTarget: { getBoundingClientRect: () => ({ top: 0, height: 100 }) },
+  clientY: 90,
+  preventDefault() {},
+  stopPropagation() {},
+};
+activeArticles[1].element.props.onDragOver(dragOver);
+const afterDragOver = await renderRounds(1);
+const dragArticles = afterDragOver.seen.filter(({ element }) =>
+  element.type === 'article' && element.props['data-archived'] === 'false');
+assert.equal(dragArticles[1].element.props['data-drop-after'], 'true', 'drag over marks the insertion side');
+dragArticles[1].element.props.onDrop({ dataTransfer: { types: [] }, preventDefault() {}, stopPropagation() {} });
+const afterReorder = await renderRounds(2);
+assert.deepEqual(
+  textareas(afterReorder.seen).map(({ element }) => element.props.value),
+  ['优化：第一', '优化：优化：A\n\nB'],
+  'dragging a card updates the display order',
+);
+assert.equal(sidebarRows[0].attributes['data-np-unsent'], '2', 'workspace badge follows the live pending count');
+
+await new Promise((resolve) => setTimeout(resolve, 650));
+const afterFeatureSave = await renderRounds(1);
+const featurePut = JSON.parse(requests.filter((request) => request.method === 'PUT').at(-1).body);
+const titled = featurePut.segments.find((segment) => segment.title === '合并标题');
+assert.ok(titled, 'card titles autosave');
+assert.equal(titled.text, '优化：优化：A\n\nB', 'optimized text autosaves');
+
 // Global hotkey ----------------------------------------------------------
 const keydown = listeners.get('keydown');
 assert.ok(keydown && keydown.size > 0, 'global keydown listener installed');
@@ -794,6 +950,9 @@ pressHotkey();
 const hotkeyHidden = await renderRounds(2);
 const hotkeyCard = hotkeyHidden.seen.find(({ element }) => element.type === 'section' && element.props['data-dsh-notepad'] === 'true');
 assert.equal(hotkeyCard.element.props['data-hidden'], 'true', 'hotkey hides the card');
+const hotkeyBadge = findByClass(hotkeyHidden.seen, 'dsh-np-restore-badge');
+assert.ok(hotkeyBadge, 'the hidden restore button still shows a pending badge');
+assert.equal(hotkeyBadge.element.props.children, '2', 'the badge tracks the current pending count');
 pressHotkey();
 const hotkeyShown = await renderRounds(2);
 const hotkeyShownCard = hotkeyShown.seen.find(({ element }) => element.type === 'section' && element.props['data-dsh-notepad'] === 'true');

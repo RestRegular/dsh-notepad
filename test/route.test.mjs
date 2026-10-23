@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { handleRequest } from '../index.js';
-import { NOTE_VERSION, notePath } from '../lib/note-store.js';
+import { NOTE_VERSION, notePath, writeNote } from '../lib/note-store.js';
 
-function fakeContext({ workspaces = [], sessions = {} } = {}) {
+const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+
+function fakeContext({ workspaces = [], sessions = {}, llm = undefined, selection = undefined } = {}) {
   return {
     logger: { warn() {} },
     get(name) {
@@ -21,7 +24,29 @@ function fakeContext({ workspaces = [], sessions = {} } = {}) {
           },
         };
       }
+      if (name === 'llm') return llm;
+      if (name === 'agentDefaultModel') {
+        return selection === undefined ? undefined : { currentSelection: () => selection };
+      }
       return undefined;
+    },
+  };
+}
+
+/** Minimal streaming LLM double: one text delta, then a successful finish. */
+function fakeLlm(output) {
+  return {
+    async resolveCallConfig(config) {
+      return { ...config };
+    },
+    async prepareCall(base) {
+      return {
+        config: base,
+        async *stream() {
+          if (output !== '') yield { type: 'text-delta', text: output };
+          yield { type: 'finish', reason: { kind: 'stop' } };
+        },
+      };
     },
   };
 }
@@ -51,7 +76,7 @@ test('ping identifies the plugin', async (t) => {
   const body = await response.json();
   assert.equal(body.ok, true);
   assert.equal(body.plugin, 'dsh-notepad');
-  assert.equal(body.version, '0.3.1');
+  assert.equal(body.version, manifest.version);
   assert.equal(body.noteVersion, NOTE_VERSION);
   assert.deepEqual(body.imageTypes, ['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
   assert.equal(body.maxImageBytes, 20 * 1024 * 1024);
@@ -245,4 +270,115 @@ test('image upload rejects unsupported, mismatched and malformed payloads', asyn
   const unknownRoot = await imageRequest(base, path.join(root, 'elsewhere'));
   assert.equal(unknownRoot.status, 403);
   assert.equal((await unknownRoot.json()).code, 'unknown-workspace');
+});
+
+test('DELETE image removes only files owned by the plugin directory', async (t) => {
+  const root = await tempDir(t);
+  const base = await serve(t, fakeContext({ workspaces: [{ path: root }] }));
+  const uploaded = await (await imageRequest(base, root)).json();
+  const file = path.join(root, ...uploaded.path.split('/'));
+  await readFile(file);
+
+  const removed = await fetch(`${base}/dsh-notepad/api/image`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root, sessionId: 's1', path: uploaded.path }),
+  });
+  assert.equal(removed.status, 200);
+  assert.equal((await removed.json()).deleted, true);
+  await assert.rejects(() => readFile(file));
+
+  const again = await fetch(`${base}/dsh-notepad/api/image`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root, sessionId: 's1', path: uploaded.path }),
+  });
+  assert.equal(again.status, 200);
+  assert.equal((await again.json()).deleted, false);
+
+  const outside = await fetch(`${base}/dsh-notepad/api/image`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root, sessionId: 's1', path: '.dsh/notepad.json' }),
+  });
+  assert.equal(outside.status, 403);
+  assert.equal((await outside.json()).code, 'not-owned');
+});
+
+test('GET unsent returns a pending count for every registered workspace', async (t) => {
+  const rootA = await tempDir(t);
+  const rootB = await tempDir(t);
+  await writeNote(rootA, [
+    { id: 'a', text: '待发一' },
+    { id: 'b', text: '待发二' },
+    { id: 'c', text: '已发', archived: true, archivedAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'd', text: '   ' },
+  ]);
+  await writeNote(rootB, []);
+  const base = await serve(t, fakeContext({
+    workspaces: [
+      { id: 'ws-a', path: rootA, title: 'A' },
+      { id: 'ws-b', path: rootB, title: 'B' },
+    ],
+  }));
+  const response = await fetch(`${base}/dsh-notepad/api/unsent?sessionId=s1`);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body.workspaces.map((workspace) => [workspace.id, workspace.count]), [
+    ['ws-a', 2],
+    ['ws-b', 0],
+  ]);
+  assert.equal(body.workspaces[0].path, rootA);
+  assert.ok(!JSON.stringify(body).includes('待发'), 'counts never expose note text');
+});
+
+test('POST optimize rewrites one segment with the default model', async (t) => {
+  const root = await tempDir(t);
+  const base = await serve(t, fakeContext({
+    workspaces: [{ id: 'ws', path: root }],
+    llm: fakeLlm('优化后的内容'),
+    selection: { provider: 'deepseek', model: 'deepseek-chat' },
+  }));
+  const response = await fetch(`${base}/dsh-notepad/api/optimize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      root,
+      sessionId: 's1',
+      title: '问题',
+      text: '这段文字需要优化',
+    }),
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.text, '优化后的内容');
+});
+
+test('POST optimize reports a missing model as unavailable', async (t) => {
+  const root = await tempDir(t);
+  const base = await serve(t, fakeContext({ workspaces: [{ path: root }] }));
+  const response = await fetch(`${base}/dsh-notepad/api/optimize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root, sessionId: 's1', text: '内容' }),
+  });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, 'unavailable');
+});
+
+test('POST optimize rejects empty text', async (t) => {
+  const root = await tempDir(t);
+  const base = await serve(t, fakeContext({
+    workspaces: [{ path: root }],
+    llm: fakeLlm('x'),
+    selection: { provider: 'p', model: 'm' },
+  }));
+  const response = await fetch(`${base}/dsh-notepad/api/optimize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root, sessionId: 's1', text: '   ' }),
+  });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, 'bad-input');
 });

@@ -50,8 +50,12 @@ window.__ModuleLoader__.load({
     const SAVE_DELAY = 500;
     const MAX_SEGMENTS = 200;
     const MAX_SEGMENT_CHARS = 160000;
+    const MAX_TITLE_CHARS = 200;
     const MAX_IMAGES = 20;
     const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+    const MAX_OPTIMIZE_CHARS = 60000;
+    const SIDEBAR_REFRESH_MS = 20000;
+    const IMAGE_DELETE_DELAY = 5000;
     const IMAGE_MIME = {
       'image/png': 'png',
       'image/jpeg': 'jpg',
@@ -68,6 +72,9 @@ window.__ModuleLoader__.load({
         editor: '分段内容',
         placeholder: '记录开发中遇到的问题，或下一阶段要做的事……',
         segmentPlaceholder: '新分段…',
+        titlePlaceholder: '分段标题（可选）',
+        segmentTitle: '分段标题',
+        indexHint: '点击选择此段 · 拖动可排序',
         loading: '读取中…',
         empty: '还没有内容',
         unsaved: '未保存',
@@ -102,6 +109,22 @@ window.__ModuleLoader__.load({
         selectHint: '勾选分段可批量操作',
         selected: '已选 {n} 段',
         selectSegment: '选择此段',
+        merge: '合并分段',
+        mergeSelected: '合并选中的 {n} 段',
+        mergeHint: '至少选择 2 段才能合并',
+        mergedToast: '已合并 {n} 段',
+        optimizeSegment: 'AI 优化此段',
+        optimizeAll: 'AI 优化全部分段',
+        optimizeAllProgress: 'AI 优化中 {done}/{total}',
+        optimizing: '优化中…',
+        optimizedToast: '已优化此段',
+        optimizedCount: '已优化 {n} 段',
+        optimizeEmpty: '没有可优化的文字',
+        optimizeTooLong: '内容太长，无法优化',
+        optimizeUnavailable: 'AI 服务不可用',
+        optimizeFailed: '优化失败',
+        dragSegment: '拖动排序',
+        unsent: '{n} 条未发送',
         archive: '归档',
         archiveSegment: '归档此段',
         archiveSelected: '归档选中的 {n} 段',
@@ -153,6 +176,9 @@ window.__ModuleLoader__.load({
         editor: 'Segment content',
         placeholder: 'Jot down problems, or what to build next…',
         segmentPlaceholder: 'New segment…',
+        titlePlaceholder: 'Segment title (optional)',
+        segmentTitle: 'Segment title',
+        indexHint: 'Click to select · drag to reorder',
         loading: 'Loading…',
         empty: 'Nothing here yet',
         unsaved: 'Unsaved',
@@ -187,6 +213,22 @@ window.__ModuleLoader__.load({
         selectHint: 'Check segments to batch',
         selected: '{n} selected',
         selectSegment: 'Select this segment',
+        merge: 'Merge segments',
+        mergeSelected: 'Merge {n} selected',
+        mergeHint: 'Select at least 2 segments to merge',
+        mergedToast: 'Merged {n} segments',
+        optimizeSegment: 'Improve this segment with AI',
+        optimizeAll: 'Improve all segments with AI',
+        optimizeAllProgress: 'Improving {done}/{total}',
+        optimizing: 'Improving…',
+        optimizedToast: 'Segment improved',
+        optimizedCount: 'Improved {n} segments',
+        optimizeEmpty: 'Nothing to improve',
+        optimizeTooLong: 'Too long to improve',
+        optimizeUnavailable: 'AI service unavailable',
+        optimizeFailed: 'Improve failed',
+        dragSegment: 'Drag to reorder',
+        unsent: '{n} unsent',
         archive: 'Archive',
         archiveSegment: 'Archive this segment',
         archiveSelected: 'Archive {n} selected',
@@ -488,6 +530,42 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** Four-point sparkle: an AI improvement action. */
+    function SparkleIcon({ size = 16 }) {
+      return h(
+        Svg,
+        { size, viewBox: '0 0 16 16' },
+        h('path', {
+          d: 'M8 1.8c.5 2.7 1.5 3.7 4.2 4.2-2.7.5-3.7 1.5-4.2 4.2-.5-2.7-1.5-3.7-4.2-4.2C6.5 5.5 7.5 4.5 8 1.8Z',
+          stroke: 'currentColor', strokeWidth: 1.2,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }),
+        h('path', {
+          d: 'M12.4 9.6c.3 1.5.8 2 2.3 2.3-1.5.3-2 .8-2.3 2.3-.3-1.5-.8-2-2.3-2.3 1.5-.3 2-.8 2.3-2.3Z',
+          stroke: 'currentColor', strokeWidth: 1.1,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }),
+      );
+    }
+
+    /** Two arrows converging: merge selected segments into one. */
+    function MergeIcon({ size = 16 }) {
+      return h(
+        Svg,
+        { size, viewBox: '0 0 16 16' },
+        h('path', {
+          d: 'M3.2 3.4v2.2c0 1.4 1.1 2.5 2.5 2.5h4.6c1.4 0 2.5 1.1 2.5 2.5v2.2',
+          stroke: 'currentColor', strokeWidth: 1.3,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }),
+        h('path', {
+          d: 'M3.2 12.6v-2.2c0-1.4 1.1-2.5 2.5-2.5h4.6c1.4 0 2.5-1.1 2.5-2.5V3.4',
+          stroke: 'currentColor', strokeWidth: 1.3,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }),
+      );
+    }
+
     /** Arrow towards the bottom-right corner: minimize to the corner icon. */
     function MinimizeIcon({ size = 16 }) {
       return h(
@@ -533,7 +611,7 @@ window.__ModuleLoader__.load({
 .dsh-np-btn:focus-visible,.dsh-np-segbtn:focus-visible,.dsh-np-link:focus-visible,.dsh-np-empty-add:focus-visible,.dsh-np-toast-action:focus-visible,.dsh-np-selectall input:focus-visible,.dsh-np-check input:focus-visible,.dsh-np-restore:focus-visible,.dsh-np-img-open:focus-visible,.dsh-np-img-remove:focus-visible{outline:2px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#4176e6));outline-offset:-2px}
 .dsh-np-body{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;padding:8px 10px 0;opacity:1;transition:opacity .16s ease,visibility 0s linear 0s}
 .dsh-np-card[data-minimized=true] .dsh-np-body{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .16s ease,visibility 0s linear .16s}
-.dsh-np-tools{display:flex;align-items:center;gap:4px;flex:none;padding:0 2px 7px;border-bottom:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08))}
+.dsh-np-tools{display:flex;align-items:center;flex-wrap:wrap;gap:4px;flex:none;padding:0 2px 7px;border-bottom:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08))}
 .dsh-np-selectall{display:inline-flex;align-items:center;gap:6px;min-width:0;cursor:pointer;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11px;white-space:nowrap}
 .dsh-np-selectall input{width:14px;height:14px;margin:0;accent-color:var(--np-accent);cursor:pointer;flex:none}
 .dsh-np-selectall input:disabled{cursor:default;opacity:.45}
@@ -543,12 +621,23 @@ window.__ModuleLoader__.load({
 .dsh-np-seg[data-selected=true]{border-color:var(--np-accent);background:color-mix(in srgb,var(--np-accent) 6%,var(--np-surface-2));box-shadow:0 0 0 1px var(--np-accent) inset}
 .dsh-np-seg[data-archived=true]{border-style:dashed;background:transparent;opacity:.82;animation:none}
 .dsh-np-seg-head{display:flex;align-items:center;gap:3px;flex:none;min-height:30px;padding:3px 5px 0 7px;box-sizing:border-box}
+.dsh-np-seg[data-reorder-drag=true]{opacity:.45}
+.dsh-np-seg[data-drop-before=true]{box-shadow:0 -2px 0 0 var(--np-accent)}
+.dsh-np-seg[data-drop-after=true]{box-shadow:0 2px 0 0 var(--np-accent)}
 .dsh-np-check{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;cursor:pointer}
 .dsh-np-check input{width:14px;height:14px;margin:0;accent-color:var(--np-accent);cursor:pointer}
-.dsh-np-index{flex:none;color:var(--dsw-alias-label-caption,#9aa3b2);font-size:10px;font-weight:600;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+.dsh-np-index{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:20px;padding:0 2px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-caption,#9aa3b2);font:inherit;font-size:10px;font-weight:700;letter-spacing:.04em;font-variant-numeric:tabular-nums;cursor:pointer;user-select:none}
+.dsh-np-index:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));color:var(--dsw-alias-label-primary,#1f2430)}
+.dsh-np-index[aria-pressed=true]{background:color-mix(in srgb,var(--np-accent) 14%,transparent);color:var(--np-accent)}
+.dsh-np-title-input{flex:1 1 auto;min-width:0;width:0;height:20px;padding:0 4px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary,#4b5563);font:inherit;font-size:11px;font-weight:600;line-height:20px;outline:0}
+.dsh-np-title-input::placeholder{color:var(--dsw-alias-label-caption,#9aa3b2);font-weight:400}
+.dsh-np-title-input:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06))}
+.dsh-np-title-input:focus{background:var(--np-surface);box-shadow:0 0 0 1px var(--np-accent) inset;color:var(--dsw-alias-label-primary,#1f2430)}
+.dsh-np-seg-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#4b5563);font-size:11px;font-weight:600}
 .dsh-np-archived-chip{flex:none;padding:0 6px;border-radius:5px;background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));color:var(--dsw-alias-label-tertiary,#6b7280);font-size:10px;line-height:16px}
 .dsh-np-segbtn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary,#6b7280);cursor:pointer;transition:background .12s,color .12s,opacity .12s;opacity:.8}
 .dsh-np-segbtn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));color:var(--dsw-alias-label-primary,#1f2430);opacity:1}
+.dsh-np-segbtn[data-ai=true]{color:var(--np-accent);opacity:1}
 .dsh-np-segbtn[data-danger=true]:hover:not(:disabled){color:var(--dsw-alias-state-error-primary,#e25555);background:var(--dsw-alias-interactive-bg-hover-danger,rgb(236 19 19/.05))}
 .dsh-np-segbtn:disabled{opacity:.3;cursor:default}
 .dsh-np-seg-text{display:block;width:100%;box-sizing:border-box;padding:2px 10px 8px;border:0;outline:0;resize:none;background:transparent;color:inherit;font-family:${FONT_STACK};font-size:13px;line-height:1.6;min-height:26px;max-height:240px;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2}
@@ -566,6 +655,7 @@ window.__ModuleLoader__.load({
 .dsh-np-img-remove{display:inline-flex;align-items:center;justify-content:center;flex:none;width:17px;height:17px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--dsw-alias-label-caption,#9aa3b2);cursor:pointer}
 .dsh-np-img-remove:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));color:var(--dsw-alias-state-error-primary,#e25555)}
 .dsh-np-img-spinner{flex:none;width:14px;height:14px;border:2px solid color-mix(in srgb,var(--np-accent) 30%,transparent);border-top-color:var(--np-accent);border-radius:50%;animation:dsh-np-spin .8s linear infinite}
+.dsh-np-mini-spinner{flex:none;width:12px;height:12px;border:1.8px solid color-mix(in srgb,var(--np-accent) 30%,transparent);border-top-color:var(--np-accent);border-radius:50%;animation:dsh-np-spin .8s linear infinite}
 .dsh-np-seg-archived-text{padding:2px 10px 9px;color:var(--dsw-alias-label-secondary,#4b5563);font-size:13px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
 .dsh-np-seg[data-archived=true] .dsh-np-medias{padding:0 10px 8px}
 .dsh-np-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;flex:none;padding:22px 12px;text-align:center;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px}
@@ -597,6 +687,9 @@ window.__ModuleLoader__.load({
 .dsh-np-restore{position:fixed;right:16px;bottom:16px;z-index:30;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.12));border-radius:10px;background:var(--dsw-alias-bg-layer-2,#fff);color:var(--dsw-alias-label-secondary,#4b5563);box-shadow:var(--dsw-elevation-lv2,0 8px 24px rgb(15 23 42/.16));cursor:pointer;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(6px) scale(.9);transition:opacity .18s ease,transform .18s ease,visibility 0s linear .18s}
 .dsh-np-restore[data-visible=true]{opacity:.9;visibility:visible;pointer-events:auto;transform:none;transition:opacity .18s ease,transform .18s ease,visibility 0s linear 0s}
 .dsh-np-restore[data-visible=true]:hover{opacity:1;transform:translateY(-1px)}
+.dsh-np-restore-badge{position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;border-radius:9px;background:var(--dsw-alias-state-business-primary,#4176e6);color:#fff;font-size:9.5px;font-weight:700;line-height:16px;text-align:center;font-variant-numeric:tabular-nums;box-shadow:0 0 0 1.5px var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-layer-1,#fff))}
+[data-row-key^="workspace:"][data-np-unsent]{position:relative}
+[data-row-key^="workspace:"][data-np-unsent]::after{content:attr(data-np-unsent);position:absolute;top:-4px;left:1px;z-index:2;min-width:15px;height:15px;padding:0 4px;box-sizing:border-box;border-radius:8px;background:var(--dsw-alias-state-business-primary,#4176e6);color:#fff;font-size:9.5px;font-weight:700;line-height:15px;text-align:center;font-variant-numeric:tabular-nums;pointer-events:none;box-shadow:0 0 0 1.5px var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-layer-1,#fff))}
 @keyframes dsh-np-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 @keyframes dsh-np-rise{from{opacity:0;transform:translate(-50%,4px)}to{opacity:1;transform:translate(-50%,0)}}
 @keyframes dsh-np-item-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
@@ -605,7 +698,7 @@ body[data-ds-dark-theme] .dsh-np-card{--np-accent-fg:#0f1115;box-shadow:0 18px 4
 body[data-ds-dark-theme] .dsh-np-seg[data-selected=true]{background:color-mix(in srgb,var(--np-accent) 14%,var(--dsw-alias-bg-layer-2,#2c2c2e))}
 body[data-ds-dark-theme] .dsh-np-btn[data-accent=true]:hover:not(:disabled){background:color-mix(in srgb,var(--np-accent) 84%,#fff)}
 body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
-@media (prefers-reduced-motion:reduce){.dsh-np-card,.dsh-np-body,.dsh-np-archive,.dsh-np-restore,.dsh-np-seg,.dsh-np-toast{transition:none!important;animation:none!important}.dsh-np-dot[data-state=saving]{animation:none}.dsh-np-img-spinner{animation:none}}`;
+@media (prefers-reduced-motion:reduce){.dsh-np-card,.dsh-np-body,.dsh-np-archive,.dsh-np-restore,.dsh-np-seg,.dsh-np-toast{transition:none!important;animation:none!important}.dsh-np-dot[data-state=saving]{animation:none}.dsh-np-img-spinner,.dsh-np-mini-spinner{animation:none}}`;
 
     // ------------------------------------------------------------------
     // Helpers
@@ -625,14 +718,38 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       return `seg-${Date.now().toString(36)}-${segmentSequence.toString(36)}`;
     }
 
-    function newSegment(text) {
-      return { id: newSegmentId(), text, images: [], archived: false, archivedAt: null };
+    function nowIso() {
+      try {
+        return new Date().toISOString();
+      } catch {
+        return '';
+      }
+    }
+
+    function newSegment(text, options = {}) {
+      return {
+        id: newSegmentId(),
+        text,
+        title: typeof options.title === 'string' ? options.title.slice(0, MAX_TITLE_CHARS) : '',
+        createdAt: typeof options.createdAt === 'string' && options.createdAt !== ''
+          ? options.createdAt
+          : nowIso(),
+        images: [],
+        archived: false,
+        archivedAt: null,
+      };
     }
 
     function serializeSegments(segments) {
       return segments.map((segment) => ({
         id: segment.id,
         text: segment.text,
+        ...(typeof segment.title === 'string' && segment.title !== ''
+          ? { title: segment.title }
+          : {}),
+        ...(typeof segment.createdAt === 'string' && segment.createdAt !== ''
+          ? { createdAt: segment.createdAt }
+          : {}),
         ...(Array.isArray(segment.images) && segment.images.length > 0
           ? { images: segment.images.map((image) => ({ path: image.path, name: image.name })) }
           : {}),
@@ -654,6 +771,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           out.push({
             id,
             text: item.text,
+            title: typeof item.title === 'string' ? item.title.slice(0, MAX_TITLE_CHARS) : '',
+            createdAt: typeof item.createdAt === 'string' && item.createdAt !== '' ? item.createdAt : null,
             images: normalizeImages(item.images),
             archived,
             archivedAt: archived && typeof item.archivedAt === 'string' ? item.archivedAt : null,
@@ -735,6 +854,46 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         .map((segment) => segmentBody(segment))
         .filter((text) => text !== '')
         .join('\n\n');
+    }
+
+    /** Whether a segment still counts as unsent work (active + has content). */
+    function isUnsent(segment) {
+      if (segment === null || segment === undefined || segment.archived === true) return false;
+      if (typeof segment.text === 'string' && segment.text.trim() !== '') return true;
+      return Array.isArray(segment.images) && segment.images.length > 0;
+    }
+
+    function countUnsent(segments) {
+      let count = 0;
+      for (const segment of segments) {
+        if (isUnsent(segment)) count += 1;
+      }
+      return count;
+    }
+
+    /** Whether a whole server payload predates per-segment creation times. */
+    function isLegacyPayload(data) {
+      const segments = Array.isArray(data?.segments) ? data.segments : [];
+      return segments.length > 0 && segments.every((segment) =>
+        segment !== null && typeof segment === 'object'
+        && (typeof segment.createdAt !== 'string' || segment.createdAt === ''));
+    }
+
+    /**
+     * Adopt server content without moving cards the user is looking at.
+     * Known ids keep the local order; cards created elsewhere land on top.
+     */
+    function mergeServerOrder(current, incoming) {
+      const byId = new Map();
+      for (const segment of incoming) byId.set(segment.id, segment);
+      const kept = [];
+      for (const segment of current) {
+        const next = byId.get(segment.id);
+        if (next !== undefined) kept.push(next);
+      }
+      const known = new Set(kept.map((segment) => segment.id));
+      const added = incoming.filter((segment) => !known.has(segment.id));
+      return [...added, ...kept];
     }
 
     function isAbsolutePath(value) {
@@ -950,6 +1109,32 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       return readResponse(response);
     }
 
+    async function optimizeNoteText(root, sessionId, text, title) {
+      const response = await fetch(`${API}/optimize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ root, sessionId, text, title }),
+      });
+      return readResponse(response);
+    }
+
+    async function removeStoredImage(root, sessionId, pathValue) {
+      const response = await fetch(`${API}/image`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ root, sessionId, path: pathValue }),
+      });
+      return readResponse(response);
+    }
+
+    async function fetchUnsentCounts(sessionId) {
+      const response = await fetch(`${API}/unsent?sessionId=${encodeURIComponent(sessionId)}`, {
+        method: 'GET',
+        cache: 'no-store',
+      });
+      return readResponse(response);
+    }
+
     async function copyText(value) {
       try {
         if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
@@ -1021,6 +1206,12 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const [resizing, setResizing] = useState(false);
       const [uploading, setUploading] = useState({});
       const [dragSegment, setDragSegment] = useState('');
+      const [reorderDrag, setReorderDrag] = useState('');
+      const [reorderOver, setReorderOver] = useState(null);
+      const [optimizing, setOptimizing] = useState(() => new Set());
+      const [optimizeAll, setOptimizeAll] = useState(null);
+      const [wsCounts, setWsCounts] = useState({});
+      const [currentWsId, setCurrentWsId] = useState('');
 
       const bindingRef = useRef(null);
       const rootSessionRef = useRef('');
@@ -1045,6 +1236,11 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const listRef = useRef(null);
       const pendingFocusRef = useRef(null);
       const undoRef = useRef(null);
+      const optimizingRef = useRef(new Set());
+      const optimizeAllRef = useRef(false);
+      const reorderDragRef = useRef('');
+      const reorderOverRef = useRef(null);
+      const imageDeleteTimersRef = useRef(new Map());
 
       const setSelection = (next) => {
         selectedRef.current = next;
@@ -1227,6 +1423,9 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             .then((data) => {
               if (cancelled || rootRef.current !== root || mySeq !== loadSeqRef.current) return;
               let value = normalizeServerSegments(data);
+              // Notes written before 0.4 appended new cards at the bottom;
+              // reverse that legacy order once so the newest card leads.
+              if (isLegacyPayload(data)) value = value.slice().reverse();
               if (value.length === 0) value = [newSegment('')];
               segmentsRef.current = value;
               setSegments(value);
@@ -1250,6 +1449,91 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           if (reloadRef.current === load) reloadRef.current = null;
         };
       }, [binding === null ? '' : binding.id, binding === null ? '' : binding.cwd]);
+
+      // Sidebar workspace badges --------------------------------------------
+      useEffect(() => {
+        if (binding === null) {
+          setCurrentWsId('');
+          setWsCounts({});
+          return undefined;
+        }
+        setCurrentWsId('');
+        let disposed = false;
+        const refresh = () => {
+          const sessionId = binding.id;
+          if (typeof sessionId !== 'string' || sessionId === '') return;
+          fetchUnsentCounts(sessionId)
+            .then((data) => {
+              if (disposed || bindingRef.current?.id !== sessionId) return;
+              const next = {};
+              let matched = '';
+              const target = normalizedCwd(binding.cwd);
+              for (const workspace of Array.isArray(data?.workspaces) ? data.workspaces : []) {
+                const id = typeof workspace?.id === 'string' ? workspace.id : '';
+                if (id === '') continue;
+                next[id] = Number.isFinite(workspace.count) ? Math.max(0, Math.floor(workspace.count)) : 0;
+                if (matched === '' && normalizedCwd(workspace.path) === target) matched = id;
+              }
+              setWsCounts(next);
+              if (matched !== '') setCurrentWsId(matched);
+            })
+            .catch(() => {});
+        };
+        refresh();
+        const timer = setInterval(refresh, SIDEBAR_REFRESH_MS);
+        const onFocus = () => refresh();
+        const onVisibility = () => {
+          if (typeof document !== 'undefined' && document.visibilityState === 'visible') refresh();
+        };
+        window.addEventListener('focus', onFocus);
+        if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility);
+        return () => {
+          disposed = true;
+          clearInterval(timer);
+          window.removeEventListener('focus', onFocus);
+          if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility);
+        };
+      }, [binding === null ? '' : binding.id, binding === null ? '' : binding.cwd]);
+
+      const localUnsentCount = countUnsent(segments);
+
+      useEffect(() => {
+        if (currentWsId === '') return;
+        setWsCounts((previous) =>
+          (previous[currentWsId] === localUnsentCount
+            ? previous
+            : { ...previous, [currentWsId]: localUnsentCount }));
+      }, [currentWsId, localUnsentCount]);
+
+      useEffect(() => {
+        if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return undefined;
+        const apply = () => {
+          let rows;
+          try {
+            rows = document.querySelectorAll('[data-row-key^="workspace:"]');
+          } catch {
+            return;
+          }
+          for (const row of rows) {
+            const key = typeof row.getAttribute === 'function' ? String(row.getAttribute('data-row-key') ?? '') : '';
+            const id = key.startsWith('workspace:') ? key.slice('workspace:'.length) : '';
+            const count = id === '' ? 0 : (wsCounts[id] ?? 0);
+            if (count > 0) row.setAttribute('data-np-unsent', count > 99 ? '99+' : String(count));
+            else row.removeAttribute('data-np-unsent');
+          }
+        };
+        apply();
+        const Observer = typeof globalThis !== 'undefined' ? globalThis.MutationObserver : undefined;
+        if (typeof Observer !== 'function' || typeof document.body === 'undefined' || document.body === null) {
+          return () => apply();
+        }
+        const observer = new Observer(apply);
+        observer.observe(document.body, { childList: true, subtree: true });
+        return () => {
+          observer.disconnect();
+          apply();
+        };
+      }, [wsCounts]);
 
       // Focus a just-created or restored card ------------------------------
       useEffect(() => {
@@ -1296,6 +1580,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           window.removeEventListener('keydown', onKeyDown, true);
           clearTimer();
           if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+          for (const timer of imageDeleteTimersRef.current.values()) clearTimeout(timer);
+          imageDeleteTimersRef.current.clear();
         };
       }, []);
 
@@ -1334,11 +1620,13 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             .then((data) => {
               if (rootRef.current !== root || dirtyRef.current) return;
               if (typeof data.mtimeMs === 'number' && data.mtimeMs === versionRef.current) return;
-              let value = normalizeServerSegments(data);
-              if (value.length === 0) value = [newSegment('')];
+              let incoming = normalizeServerSegments(data);
+              if (isLegacyPayload(data)) incoming = incoming.slice().reverse();
+              if (incoming.length === 0) incoming = [newSegment('')];
+              const value = mergeServerOrder(segmentsRef.current, incoming);
               segmentsRef.current = value;
               setSegments(value);
-              setSelection(new Set());
+              pruneSelectionFor(value);
               versionRef.current = typeof data.mtimeMs === 'number' ? data.mtimeMs : null;
               setSavedAt(typeof data.mtimeMs === 'number' ? data.mtimeMs : null);
               setStatus('saved');
@@ -1363,6 +1651,19 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       // Segment mutations ---------------------------------------------------
       const updateSegmentText = (id, value) => {
         const next = segmentsRef.current.map((segment) => (segment.id === id ? { ...segment, text: value } : segment));
+        segmentsRef.current = next;
+        setSegments(next);
+        dirtyRef.current = true;
+        setStatus('dirty');
+        setError('');
+        scheduleSave();
+      };
+
+      const updateSegmentTitle = (id, value) => {
+        const title = String(value ?? '').slice(0, MAX_TITLE_CHARS);
+        const target = segmentsRef.current.find((segment) => segment.id === id);
+        if (target === undefined || target.title === title) return;
+        const next = segmentsRef.current.map((segment) => (segment.id === id ? { ...segment, title } : segment));
         segmentsRef.current = next;
         setSegments(next);
         dirtyRef.current = true;
@@ -1445,13 +1746,46 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         }
       };
 
+      const clearPendingImageDeletes = () => {
+        for (const timer of imageDeleteTimersRef.current.values()) {
+          clearTimeout(timer);
+        }
+        imageDeleteTimersRef.current.clear();
+      };
+
+      const deleteImageFile = (pathValue) => {
+        const root = rootRef.current;
+        const sessionId = rootSessionRef.current;
+        if (root === '' || sessionId === '' || typeof pathValue !== 'string' || pathValue === '') return;
+        removeStoredImage(root, sessionId, pathValue).catch(() => {});
+      };
+
+      const scheduleImageCleanup = (images) => {
+        const list = Array.isArray(images) ? images : [];
+        for (const image of list) {
+          const pathValue = typeof image?.path === 'string' ? image.path : '';
+          if (pathValue === '' || imageDeleteTimersRef.current.has(pathValue)) continue;
+          const timer = setTimeout(() => {
+            imageDeleteTimersRef.current.delete(pathValue);
+            if (!segmentsRef.current.some((segment) =>
+              (Array.isArray(segment.images) ? segment.images : []).some((item) => item.path === pathValue))) {
+              deleteImageFile(pathValue);
+            }
+          }, IMAGE_DELETE_DELAY);
+          imageDeleteTimersRef.current.set(pathValue, timer);
+        }
+      };
+
       const removeImage = (id, pathValue) => {
         const next = segmentsRef.current.map((segment) => {
           if (segment.id !== id) return segment;
           const images = Array.isArray(segment.images) ? segment.images.filter((image) => image.path !== pathValue) : [];
           return { ...segment, images };
         });
+        const stillReferenced = next.some((segment) =>
+          (Array.isArray(segment.images) ? segment.images : []).some((image) => image.path === pathValue));
         commitSegments(next);
+        if (!stillReferenced) deleteImageFile(pathValue);
       };
 
       const triggerFilePicker = (id) => {
@@ -1524,7 +1858,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           return;
         }
         const segment = newSegment('');
-        commitSegments([...segmentsRef.current, segment], { focus: { id: segment.id, caret: 0 } });
+        commitSegments([segment, ...segmentsRef.current], { focus: { id: segment.id, caret: 0 } });
       };
 
       const splitSegment = (id, element) => {
@@ -1534,15 +1868,21 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const head = current.text.slice(0, start);
         const tail = current.text.slice(start);
         const nextSegment = newSegment(tail);
-        const next = [];
-        for (const segment of segmentsRef.current) {
-          if (segment.id === id) {
-            next.push({ ...segment, text: head });
-            next.push(nextSegment);
-          } else {
-            next.push(segment);
-          }
-        }
+        const updated = segmentsRef.current.map((segment) =>
+          (segment.id === id ? { ...segment, text: head } : segment));
+        // Enter at the end creates a fresh card, which belongs at the top.
+        // Splitting in the middle keeps the tail next to its source card so
+        // the caret does not jump away from what the user is editing.
+        const next = tail.trim() === ''
+          ? [nextSegment, ...updated]
+          : (() => {
+              const out = [];
+              for (const segment of updated) {
+                out.push(segment);
+                if (segment.id === id) out.push(nextSegment);
+              }
+              return out;
+            })();
         commitSegments(next, { focus: { id: nextSegment.id, caret: 0 } });
       };
 
@@ -1594,6 +1934,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const record = undoRef.current;
         if (record === null || record === undefined) return;
         undoRef.current = null;
+        clearPendingImageDeletes();
         commitSegments(record.snapshot);
         setToast(null);
       };
@@ -1604,6 +1945,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         undoRef.current = { snapshot: segmentsRef.current };
         const next = segmentsRef.current.filter((segment) => segment.id !== id);
         commitSegments(next);
+        scheduleImageCleanup(target.images);
         showToast(t('deletedToast'), { label: t('undo'), onClick: undoLast });
       };
 
@@ -1613,7 +1955,224 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         undoRef.current = { snapshot: segmentsRef.current };
         const next = segmentsRef.current.filter((segment) => segment.archived !== true);
         commitSegments(next);
+        scheduleImageCleanup(archived.flatMap((segment) => (Array.isArray(segment.images) ? segment.images : [])));
         showToast(t('clearedArchive', { n: archived.length }), { label: t('undo'), onClick: undoLast });
+      };
+
+      // Merge / reorder -----------------------------------------------------
+      const mergeSelected = () => {
+        const ids = new Set(
+          segmentsRef.current
+            .filter((segment) => segment.archived !== true && selectedRef.current.has(segment.id))
+            .map((segment) => segment.id),
+        );
+        if (ids.size < 2) {
+          showToast(t('mergeHint'));
+          return;
+        }
+        const chosen = segmentsRef.current.filter((segment) => ids.has(segment.id));
+        const firstIndex = segmentsRef.current.findIndex((segment) => ids.has(segment.id));
+        let insertAt = 0;
+        for (let index = 0; index < firstIndex; index += 1) {
+          if (!ids.has(segmentsRef.current[index].id)) insertAt += 1;
+        }
+        const seenPaths = new Set();
+        const images = [];
+        for (const segment of chosen) {
+          for (const image of Array.isArray(segment.images) ? segment.images : []) {
+            if (seenPaths.has(image.path) || images.length >= MAX_IMAGES) continue;
+            seenPaths.add(image.path);
+            images.push(image);
+          }
+        }
+        const merged = {
+          id: newSegmentId(),
+          text: chosen.map((segment) => segment.text).filter((text) => text.trim() !== '').join('\n\n'),
+          title: chosen
+            .map((segment) => (typeof segment.title === 'string' ? segment.title.trim() : ''))
+            .filter((title) => title !== '')
+            .join(' · ')
+            .slice(0, MAX_TITLE_CHARS),
+          createdAt: nowIso(),
+          images,
+          archived: false,
+          archivedAt: null,
+        };
+        undoRef.current = { snapshot: segmentsRef.current };
+        const next = segmentsRef.current.filter((segment) => !ids.has(segment.id));
+        next.splice(Math.min(insertAt, next.length), 0, merged);
+        setSelection(new Set());
+        commitSegments(next, { focus: { id: merged.id, caret: merged.text.length } });
+        showToast(t('mergedToast', { n: chosen.length }), { label: t('undo'), onClick: undoLast });
+      };
+
+      const reorderSegments = (sourceId, targetId, after) => {
+        if (sourceId === '' || sourceId === targetId) return;
+        const active = segmentsRef.current.filter((segment) => segment.archived !== true);
+        const from = active.findIndex((segment) => segment.id === sourceId);
+        const to = active.findIndex((segment) => segment.id === targetId);
+        if (from < 0 || to < 0) return;
+        const moved = active.splice(from, 1)[0];
+        let insertAt = to + (after ? 1 : 0);
+        if (from < insertAt) insertAt -= 1;
+        insertAt = Math.max(0, Math.min(insertAt, active.length));
+        active.splice(insertAt, 0, moved);
+        let cursor = 0;
+        const next = segmentsRef.current.map((segment) =>
+          (segment.archived === true ? segment : active[cursor++]));
+        if (next.every((segment, index) => segment.id === segmentsRef.current[index].id)) return;
+        commitSegments(next);
+      };
+
+      const setReorderTarget = (target) => {
+        reorderOverRef.current = target;
+        setReorderOver(target);
+      };
+
+      const onSegmentReorderStart = (event, id) => {
+        reorderDragRef.current = id;
+        setReorderDrag(id);
+        try {
+          event.dataTransfer?.setData('application/x-dsh-notepad-segment', id);
+          if (event.dataTransfer !== undefined && event.dataTransfer !== null) event.dataTransfer.effectAllowed = 'move';
+        } catch {
+          /* Some browsers expose a read-only transfer. */
+        }
+      };
+
+      const onSegmentReorderOver = (event, id) => {
+        const source = reorderDragRef.current;
+        if (source === '' || source === id) return;
+        const types = event?.dataTransfer?.types;
+        if (types !== undefined && types !== null && !Array.from(types).includes('application/x-dsh-notepad-segment')) return;
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        const rect = typeof event.currentTarget?.getBoundingClientRect === 'function'
+          ? event.currentTarget.getBoundingClientRect()
+          : null;
+        const after = rect !== null && Number(event.clientY) > rect.top + rect.height / 2;
+        if (reorderOverRef.current?.id !== id || reorderOverRef.current?.after !== after) {
+          setReorderTarget({ id, after });
+        }
+      };
+
+      const onSegmentReorderDrop = (event, id) => {
+        const source = reorderDragRef.current
+          || (() => {
+            try {
+              return event?.dataTransfer?.getData('application/x-dsh-notepad-segment') ?? '';
+            } catch {
+              return '';
+            }
+          })();
+        const target = reorderOverRef.current?.id === id ? reorderOverRef.current : null;
+        reorderDragRef.current = '';
+        setReorderDrag('');
+        setReorderTarget(null);
+        if (source === '') return;
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        reorderSegments(source, id, target?.after === true);
+      };
+
+      // AI optimization -----------------------------------------------------
+      const markOptimizing = (id, active) => {
+        const next = new Set(optimizingRef.current);
+        if (active) next.add(id);
+        else next.delete(id);
+        optimizingRef.current = next;
+        setOptimizing(next);
+      };
+
+      const requestOptimization = async (segment) => {
+        const root = rootRef.current;
+        const sessionId = rootSessionRef.current;
+        if (root === '' || sessionId === '') throw new Error(t('optimizeUnavailable'));
+        if (segment.text.length > MAX_OPTIMIZE_CHARS) throw new Error(t('optimizeTooLong'));
+        const data = await optimizeNoteText(root, sessionId, segment.text, segment.title ?? '');
+        const value = typeof data.text === 'string' ? data.text.trim() : '';
+        if (value === '') throw new Error(t('optimizeFailed'));
+        return value;
+      };
+
+      const optimizeSegment = async (id) => {
+        if (optimizingRef.current.has(id)) return;
+        const target = segmentsRef.current.find((segment) => segment.id === id && segment.archived !== true);
+        if (target === undefined || target.text.trim() === '') {
+          showToast(t('optimizeEmpty'));
+          return;
+        }
+        const snapshot = segmentsRef.current;
+        const original = target.text;
+        markOptimizing(id, true);
+        try {
+          const value = await requestOptimization(target);
+          const current = segmentsRef.current.find((segment) => segment.id === id);
+          if (current === undefined || current.text !== original || value === original) return;
+          undoRef.current = { snapshot };
+          const next = segmentsRef.current.map((segment) =>
+            (segment.id === id ? { ...segment, text: value } : segment));
+          commitSegments(next);
+          showToast(t('optimizedToast'), { label: t('undo'), onClick: undoLast });
+        } catch (reason) {
+          const message = String(reason?.message ?? reason);
+          showToast(message === t('optimizeTooLong') || message === t('optimizeUnavailable')
+            ? message
+            : `${t('optimizeFailed')}: ${message}`);
+        } finally {
+          markOptimizing(id, false);
+        }
+      };
+
+      const optimizeAllSegments = async () => {
+        if (optimizeAllRef.current) return;
+        const targets = segmentsRef.current.filter((segment) =>
+          segment.archived !== true && segment.text.trim() !== '');
+        if (targets.length === 0) {
+          showToast(t('optimizeEmpty'));
+          return;
+        }
+        optimizeAllRef.current = true;
+        const snapshot = segmentsRef.current;
+        let done = 0;
+        let changed = 0;
+        let failed = 0;
+        setOptimizeAll({ done, total: targets.length });
+        try {
+          for (const target of targets) {
+            const current = segmentsRef.current.find((segment) =>
+              segment.id === target.id && segment.archived !== true);
+            if (current !== undefined && current.text === target.text) {
+              markOptimizing(target.id, true);
+              try {
+                const value = await requestOptimization(current);
+                if (value !== current.text) {
+                  const next = segmentsRef.current.map((segment) =>
+                    (segment.id === target.id && segment.text === current.text
+                      ? { ...segment, text: value }
+                      : segment));
+                  commitSegments(next);
+                  changed += 1;
+                }
+              } catch {
+                failed += 1;
+              } finally {
+                markOptimizing(target.id, false);
+              }
+            }
+            done += 1;
+            setOptimizeAll({ done, total: targets.length });
+          }
+          if (changed > 0) {
+            undoRef.current = { snapshot };
+            showToast(t('optimizedCount', { n: changed }), { label: t('undo'), onClick: undoLast });
+          } else {
+            showToast(failed > 0 ? t('optimizeFailed') : t('optimizedToast'));
+          }
+        } finally {
+          optimizeAllRef.current = false;
+          setOptimizeAll(null);
+        }
       };
 
       // Selection -----------------------------------------------------------
@@ -1902,6 +2461,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const selectedActive = activeSegments.filter((segment) => selected.has(segment.id));
       const selectedCount = selectedActive.length;
       const allSelected = activeSegments.length > 0 && selectedCount === activeSegments.length;
+      const unsentCount = countUnsent(segments);
       const totalChars = segments.reduce((sum, segment) => sum + segment.text.length, 0);
       const displayWidth = ui.width;
       const displayHeight = ui.minimized ? HEAD_H : ui.height;
@@ -2050,6 +2610,35 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           {
             type: 'button',
             className: 'dsh-np-btn',
+            title: selectedCount > 1 ? t('mergeSelected', { n: selectedCount }) : t('mergeHint'),
+            'aria-label': t('merge'),
+            disabled: selectedCount < 2,
+            onClick: mergeSelected,
+          },
+          h(MergeIcon, { size: 14 }),
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-np-btn',
+            'data-active': optimizeAll !== null ? 'true' : 'false',
+            title: optimizeAll !== null
+              ? t('optimizeAllProgress', { done: optimizeAll.done, total: optimizeAll.total })
+              : t('optimizeAll'),
+            'aria-label': t('optimizeAll'),
+            disabled: activeSegments.length === 0 || optimizeAll !== null,
+            onClick: optimizeAllSegments,
+          },
+          optimizeAll !== null
+            ? h('span', { className: 'dsh-np-mini-spinner' })
+            : h(SparkleIcon, { size: 14 }),
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-np-btn',
             title: selectedCount > 0 ? t('archiveSelected', { n: selectedCount }) : t('archive'),
             'aria-label': t('archive'),
             disabled: selectedCount === 0,
@@ -2139,6 +2728,14 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             'data-seg-id': segment.id,
             'data-archived': 'false',
             'data-selected': selected.has(segment.id) ? 'true' : 'false',
+            'data-reorder-drag': reorderDrag === segment.id ? 'true' : 'false',
+            'data-drop-before': reorderOver?.id === segment.id && reorderOver?.after === false ? 'true' : 'false',
+            'data-drop-after': reorderOver?.id === segment.id && reorderOver?.after === true ? 'true' : 'false',
+            onDragOver: (event) => onSegmentReorderOver(event, segment.id),
+            onDragLeave: () => {
+              if (reorderOverRef.current?.id === segment.id) setReorderTarget(null);
+            },
+            onDrop: (event) => onSegmentReorderDrop(event, segment.id),
           },
           h('input', {
             key: 'file-input',
@@ -2170,8 +2767,47 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                 onChange: () => toggleSelected(segment.id),
               }),
             ),
-            h('span', { className: 'dsh-np-index' }, String(index + 1).padStart(2, '0')),
-            h('span', { className: 'dsh-np-spacer' }),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-np-index',
+                title: t('indexHint'),
+                'aria-label': t('selectSegment'),
+                'aria-pressed': selected.has(segment.id) ? 'true' : 'false',
+                draggable: true,
+                onDragStart: (event) => onSegmentReorderStart(event, segment.id),
+                onDragEnd: () => {
+                  reorderDragRef.current = '';
+                  setReorderDrag('');
+                  setReorderTarget(null);
+                },
+                onClick: () => toggleSelected(segment.id),
+              },
+              String(index + 1).padStart(2, '0'),
+            ),
+            h('input', {
+              type: 'text',
+              className: 'dsh-np-title-input',
+              value: segment.title ?? '',
+              placeholder: t('titlePlaceholder'),
+              maxLength: MAX_TITLE_CHARS,
+              'aria-label': t('segmentTitle'),
+              spellCheck: false,
+              onChange: (event) => updateSegmentTitle(segment.id, event.target?.value ?? ''),
+              onKeyDown: (event) => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                try {
+                  event.currentTarget?.blur?.();
+                } catch {
+                  /* ignore */
+                }
+              },
+              onBlur: () => {
+                if (dirtyRef.current) saveNowRef.current?.();
+              },
+            }),
             h(
               'button',
               {
@@ -2218,6 +2854,21 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                 onClick: () => sendSegments([segment]),
               },
               h(SendIcon, { size: 14 }),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-np-segbtn',
+                'data-ai': 'true',
+                title: optimizing.has(segment.id) ? t('optimizing') : t('optimizeSegment'),
+                'aria-label': t('optimizeSegment'),
+                disabled: empty || optimizing.has(segment.id) || optimizeAll !== null,
+                onClick: () => optimizeSegment(segment.id),
+              },
+              optimizing.has(segment.id)
+                ? h('span', { className: 'dsh-np-mini-spinner' })
+                : h(SparkleIcon, { size: 14 }),
             ),
             h(
               'button',
@@ -2336,6 +2987,9 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                         'div',
                         { className: 'dsh-np-seg-head' },
                         h('span', { className: 'dsh-np-archived-chip' }, t('archived')),
+                        typeof segment.title === 'string' && segment.title.trim() !== ''
+                          ? h('span', { className: 'dsh-np-seg-title' }, segment.title)
+                          : null,
                         h('span', { className: 'dsh-np-spacer' }),
                         h(
                           'button',
@@ -2502,6 +3156,12 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           onClick: toggleHidden,
         },
         h(NotepadIcon, { size: 16 }),
+        ui.hidden && unsentCount > 0
+          ? h('span', {
+              className: 'dsh-np-restore-badge',
+              title: t('unsent', { n: unsentCount }),
+            }, unsentCount > 99 ? '99+' : String(unsentCount))
+          : null,
       );
 
       return [card, restore];

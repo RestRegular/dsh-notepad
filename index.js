@@ -22,6 +22,7 @@ import path from 'node:path';
 import {
   IMAGE_TYPES,
   MAX_IMAGE_BYTES,
+  deleteStoredImage,
   saveClipboardImage,
 } from './lib/image-store.js';
 import {
@@ -29,6 +30,7 @@ import {
   NOTE_VERSION,
   NoteStoreError,
   readNote,
+  unsentCount,
   writeNote,
 } from './lib/note-store.js';
 
@@ -36,13 +38,31 @@ import {
 const ROUTE = '/dsh-notepad/api';
 
 /** Plugin version mirrored in package.json. */
-const VERSION = '0.3.1';
+const VERSION = '0.4.0';
 
 /** Request body cap for note writes. */
 const BODY_LIMIT = 1024 * 1024;
 
 /** Request body cap for base64 image uploads (decoded cap + base64 overhead). */
 const IMAGE_BODY_LIMIT = Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 64 * 1024;
+
+/** Longest segment accepted by the AI optimizer. */
+const MAX_OPTIMIZE_CHARS = 60_000;
+
+/** End-to-end deadline for one AI optimization. */
+const OPTIMIZE_TIMEOUT_MS = 120_000;
+
+/** Default output cap for one optimized segment. */
+const OPTIMIZE_MAX_TOKENS = 4096;
+
+/** Shared instruction for the optional writing assistant. */
+const OPTIMIZE_SYSTEM = [
+  'You are a writing assistant for a developer notepad.',
+  'Rewrite the user\'s note so it is clearer, more concise, and better organized,',
+  'while preserving its original language, meaning, technical facts, Markdown,',
+  'code, file paths, and image links. Never invent facts or drop information.',
+  'Return only the rewritten note text: no preamble, no explanation, and no code fence.',
+].join(' ');
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
@@ -174,6 +194,131 @@ async function isKnownRoot(ctx, root, sessionId) {
   return false;
 }
 
+/**
+ * Count pending segments for every registered workspace. The sidebar badge
+ * only needs counts, so this route never returns note text or image paths.
+ * @param {import('@deepseek-ai/cordis').Context} ctx
+ * @returns {Promise<Array<{id: string, path: string, title: string, count: number}>>}
+ */
+async function listUnsentCounts(ctx) {
+  const registry = ctx.get('workspaceRegistry');
+  const list = registry !== undefined && typeof registry.list === 'function' ? registry.list() : [];
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const workspace of list) {
+    const root = typeof workspace?.path === 'string' ? workspace.path : '';
+    if (root === '') continue;
+    let count = 0;
+    try {
+      count = unsentCount(await readNote(root));
+    } catch {
+      // A workspace directory may have disappeared; keep the other badges.
+      count = 0;
+    }
+    out.push({
+      id: String(workspace.id ?? workspace.workspaceId ?? ''),
+      path: root,
+      title: typeof workspace.title === 'string' ? workspace.title : '',
+      count,
+    });
+  }
+  return out;
+}
+
+/**
+ * Strip a surrounding Markdown code fence the model may add despite the
+ * instruction, then trim. Inner code fences survive.
+ * @param {string} value
+ * @returns {string}
+ */
+function cleanOptimizedText(value) {
+  let text = String(value ?? '').replace(/^\uFEFF/u, '').trim();
+  const fenced = /^```[^\n]*\r?\n([\s\S]*?)\r?\n```$/u.exec(text);
+  if (fenced !== null) text = fenced[1].trim();
+  return text;
+}
+
+/**
+ * Ask the currently selected default model to improve one note segment.
+ * The LLM service is optional: a deployment without one reports a stable
+ * `unavailable` code instead of failing the whole notepad.
+ * @param {import('@deepseek-ai/cordis').Context} ctx
+ * @param {string} text
+ * @param {string} title
+ * @returns {Promise<string>}
+ */
+async function optimizeText(ctx, text, title) {
+  const llm = ctx.get('llm');
+  if (llm === undefined || llm === null || typeof llm.prepareCall !== 'function'
+    || typeof llm.resolveCallConfig !== 'function') {
+    throw new NoteStoreError('unavailable', 'The AI model service is not available.');
+  }
+  const defaultModel = ctx.get('agentDefaultModel');
+  if (defaultModel === undefined || defaultModel === null || typeof defaultModel.currentSelection !== 'function') {
+    throw new NoteStoreError('unavailable', 'No default model is configured.');
+  }
+  let selection;
+  try {
+    selection = defaultModel.currentSelection();
+  } catch (error) {
+    throw new NoteStoreError('unavailable', `No default model is configured: ${error?.message ?? error}`);
+  }
+  if (selection === undefined || selection === null
+    || typeof selection.provider !== 'string' || selection.provider === ''
+    || typeof selection.model !== 'string' || selection.model === '') {
+    throw new NoteStoreError('unavailable', 'No default model is configured.');
+  }
+  const signal = AbortSignal.timeout(OPTIMIZE_TIMEOUT_MS);
+  const maxTokens = Math.min(8192, Math.max(1024, Math.ceil(text.length / 2)));
+  let base;
+  try {
+    base = await llm.resolveCallConfig({
+      provider: selection.provider,
+      model: selection.model,
+      maxTokens,
+    });
+  } catch (error) {
+    throw new NoteStoreError('llm-failed', `Could not prepare the model call: ${error?.message ?? error}`);
+  }
+  if (typeof base !== 'object' || base === null) {
+    throw new NoteStoreError('llm-failed', 'The model call configuration is empty.');
+  }
+  const heading = title.trim() === '' ? '' : `Card title: ${title.trim()}\n\n`;
+  const prompt = `${heading}Rewrite this note:\n\n${text}`;
+  let output = '';
+  try {
+    const prepared = await llm.prepareCall(base, signal);
+    for await (const chunk of prepared.stream({
+      ...base,
+      system: OPTIMIZE_SYSTEM,
+      messages: [{
+        role: 'user',
+        content: [{ type: 'text', text: prompt }],
+      }],
+      signal,
+    })) {
+      if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') output += chunk.text;
+      else if (chunk?.type === 'finish' && chunk.reason?.kind === 'error') {
+        const failure = chunk.reason.failure;
+        throw new NoteStoreError('llm-failed', `The model call failed: ${failure?.message ?? 'unknown error'}`);
+      } else if (chunk?.type === 'finish' && chunk.reason?.kind === 'aborted') {
+        throw new NoteStoreError('timeout', 'The model did not answer in time.');
+      }
+    }
+  } catch (error) {
+    if (error instanceof NoteStoreError) throw error;
+    if (error?.name === 'AbortError' || error?.name === 'TimeoutError') {
+      throw new NoteStoreError('timeout', 'The model did not answer in time.');
+    }
+    throw new NoteStoreError('llm-failed', `The model call failed: ${error?.message ?? error}`);
+  }
+  const cleaned = cleanOptimizedText(output);
+  if (cleaned === '') {
+    throw new NoteStoreError('llm-failed', 'The model returned no text.');
+  }
+  return cleaned;
+}
+
 // ---------------------------------------------------------------------------
 // Route
 // ---------------------------------------------------------------------------
@@ -190,9 +335,12 @@ export async function handleRequest(ctx, req, res) {
   } catch (error) {
     if (error instanceof NoteStoreError) {
       let status = 400;
-      if (error.code === 'unknown-workspace' || error.code === 'bad-root') status = 403;
+      if (error.code === 'unknown-workspace' || error.code === 'bad-root' || error.code === 'not-owned') status = 403;
       else if (error.code === 'too-large') status = 413;
       else if (error.code === 'unsupported-type') status = 415;
+      else if (error.code === 'unavailable') status = 503;
+      else if (error.code === 'timeout') status = 504;
+      else if (error.code === 'llm-failed') status = 502;
       sendJson(res, { ok: false, code: error.code, error: error.message }, status);
       return;
     }
@@ -230,18 +378,55 @@ async function dispatchRequest(ctx, req, res) {
     return;
   }
   if (action === 'image') {
+    if (req.method === 'POST') {
+      const body = await readJsonBody(req, IMAGE_BODY_LIMIT);
+      const root = await resolveRequestRoot(ctx, body);
+      const image = await saveClipboardImage(root, {
+        name: body.name,
+        mime: body.mime,
+        data: body.data,
+      });
+      sendJson(res, { ok: true, root, ...image });
+      return;
+    }
+    if (req.method === 'DELETE') {
+      const body = await readJsonBody(req);
+      const root = await resolveRequestRoot(ctx, body);
+      const result = await deleteStoredImage(root, body.path);
+      sendJson(res, { ok: true, root, ...result });
+      return;
+    }
+    sendJson(res, { ok: false, code: 'method', error: 'Use POST or DELETE.' }, 405);
+    return;
+  }
+  if (action === 'unsent') {
+    if (req.method !== 'GET') {
+      sendJson(res, { ok: false, code: 'method', error: 'Use GET.' }, 405);
+      return;
+    }
+    const workspaces = await listUnsentCounts(ctx);
+    sendJson(res, { ok: true, workspaces });
+    return;
+  }
+  if (action === 'optimize') {
     if (req.method !== 'POST') {
       sendJson(res, { ok: false, code: 'method', error: 'Use POST.' }, 405);
       return;
     }
-    const body = await readJsonBody(req, IMAGE_BODY_LIMIT);
+    const body = await readJsonBody(req);
     const root = await resolveRequestRoot(ctx, body);
-    const image = await saveClipboardImage(root, {
-      name: body.name,
-      mime: body.mime,
-      data: body.data,
-    });
-    sendJson(res, { ok: true, root, ...image });
+    const text = typeof body.text === 'string' ? body.text : '';
+    if (text.trim() === '') {
+      throw new NoteStoreError('bad-input', 'There is no text to optimize.');
+    }
+    if (text.length > MAX_OPTIMIZE_CHARS) {
+      throw new NoteStoreError(
+        'too-large',
+        `Segment is too large to optimize (${text.length} characters; limit ${MAX_OPTIMIZE_CHARS}).`,
+      );
+    }
+    const optimized = await optimizeText(ctx, text, typeof body.title === 'string' ? body.title : '');
+    sendJson(res, { ok: true, root, text: optimized });
     return;
   }
   if (action !== 'note') {

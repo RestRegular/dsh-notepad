@@ -16,6 +16,7 @@ import {
   notePath,
   parseNote,
   readNote,
+  unsentCount,
   writeNote,
 } from '../lib/note-store.js';
 
@@ -139,6 +140,50 @@ test('parseNote keeps a valid updatedAt and derives one from mtime otherwise', (
   assert.equal(parseNote('{"text":"hi","updatedAt":"2026-01-01T00:00:00.000Z"}', 5).updatedAt, '2026-01-01T00:00:00.000Z');
   assert.equal(parseNote('{"text":"hi"}', 1000).updatedAt, new Date(1000).toISOString());
   assert.equal(parseNote('raw', undefined).updatedAt, null);
+});
+
+test('segment titles and creation times round-trip and stay backward compatible', async (t) => {
+  const root = await workspace(t);
+  const written = await writeNote(root, [
+    { id: 'a', text: '新内容', title: '  标题一  ', createdAt: '2026-01-02T00:00:00.000Z' },
+    { id: 'b', text: '旧内容' },
+  ]);
+  assert.equal(written.segments[0].title, '  标题一  ');
+  assert.equal(written.segments[0].createdAt, '2026-01-02T00:00:00.000Z');
+  assert.equal(written.segments[1].title, '');
+  assert.equal(written.segments[1].createdAt, null);
+
+  const raw = JSON.parse(await readFile(notePath(root), 'utf8'));
+  assert.equal(raw.version, NOTE_VERSION);
+  assert.equal(raw.segments[0].title, '  标题一  ');
+  assert.equal(raw.segments[0].createdAt, '2026-01-02T00:00:00.000Z');
+  assert.equal(raw.segments[1].title, undefined);
+
+  const note = await readNote(root);
+  assert.equal(note.segments[0].title, '  标题一  ');
+  assert.equal(note.segments[1].createdAt, null);
+
+  await assert.rejects(
+    () => writeNote(root, [{ text: 'x', title: 42 }]),
+    (error) => error instanceof NoteStoreError && error.code === 'bad-input',
+  );
+  await assert.rejects(
+    () => writeNote(root, [{ text: 'x', createdAt: 42 }]),
+    (error) => error instanceof NoteStoreError && error.code === 'bad-input',
+  );
+});
+
+test('unsentCount counts only active segments that carry content', () => {
+  assert.equal(unsentCount({
+    segments: [
+      { text: '有内容' },
+      { text: '   ' },
+      { text: '', images: [{ path: 'a.png', name: 'a.png' }] },
+      { text: '已归档', archived: true },
+    ],
+  }), 2);
+  assert.equal(unsentCount({ segments: [] }), 0);
+  assert.equal(unsentCount({}), 0);
 });
 
 test('duplicate segment ids are made unique on write', async (t) => {
