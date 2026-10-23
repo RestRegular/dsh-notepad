@@ -38,7 +38,7 @@ import {
 const ROUTE = '/dsh-notepad/api';
 
 /** Plugin version mirrored in package.json. */
-const VERSION = '0.8.0';
+const VERSION = '0.9.0';
 
 /** Request body cap for note writes. */
 const BODY_LIMIT = 1024 * 1024;
@@ -54,7 +54,6 @@ const OPTIMIZE_TIMEOUT_MS = 120_000;
 
 /** Default output cap for one optimized segment. */
 const OPTIMIZE_MAX_TOKENS = 4096;
-
 /** Entries kept in the in-process optimizer cache. */
 const OPTIMIZE_CACHE_LIMIT = 64;
 
@@ -258,7 +257,9 @@ async function listUnsentCounts(ctx) {
  * @returns {string}
  */
 function cleanOptimizedText(value) {
-  let text = String(value ?? '').replace(/^\uFEFF/u, '').trim();
+  let text = String(value ?? '')
+    .replace(/[\u200B-\u200D\uFEFF]/gu, '')
+    .trim();
   const fenced = /^```[^\n]*\r?\n([\s\S]*?)\r?\n```$/u.exec(text);
   if (fenced !== null) text = fenced[1].trim();
   return text;
@@ -344,7 +345,10 @@ async function optimizeText(ctx, text, title, instruction) {
     throw new NoteStoreError('unavailable', 'No default model is configured.');
   }
   const signal = AbortSignal.timeout(OPTIMIZE_TIMEOUT_MS);
-  const maxTokens = Math.min(8192, Math.max(1024, Math.ceil(text.length / 2)));
+  // Reasoning models can spend a small output budget before emitting any text,
+  // so keep a healthy floor. The old 1024-token minimum could yield an empty
+  // answer ("the model returned no text") even though the call succeeded.
+  const maxTokens = Math.min(8192, Math.max(OPTIMIZE_MAX_TOKENS, Math.ceil(text.length / 2)));
   let base;
   try {
     base = await llm.resolveCallConfig({
@@ -361,34 +365,49 @@ async function optimizeText(ctx, text, title, instruction) {
   const heading = title.trim() === '' ? '' : `Card title: ${title.trim()}\n\n`;
   const prompt = `${heading}Rewrite this note:\n\n${text}`;
   const system = optimizeSystemPrompt(instruction);
-  let output = '';
-  try {
-    const prepared = await llm.prepareCall(base, signal);
-    for await (const chunk of prepared.stream({
-      ...base,
-      system,
-      messages: [{
-        role: 'user',
-        content: [{ type: 'text', text: prompt }],
-      }],
-      signal,
-    })) {
-      if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') output += chunk.text;
-      else if (chunk?.type === 'finish' && chunk.reason?.kind === 'error') {
-        const failure = chunk.reason.failure;
-        throw new NoteStoreError('llm-failed', `The model call failed: ${failure?.message ?? 'unknown error'}`);
-      } else if (chunk?.type === 'finish' && chunk.reason?.kind === 'aborted') {
+
+  /**
+   * Run one streaming model call and return the raw text output.
+   * @param {string} systemPrompt
+   * @returns {Promise<string>}
+   */
+  const run = async (systemPrompt) => {
+    let output = '';
+    try {
+      const prepared = await llm.prepareCall(base, signal);
+      for await (const chunk of prepared.stream({
+        ...base,
+        system: systemPrompt,
+        messages: [{
+          role: 'user',
+          content: [{ type: 'text', text: prompt }],
+        }],
+        signal,
+      })) {
+        if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') output += chunk.text;
+        else if (chunk?.type === 'finish' && chunk.reason?.kind === 'error') {
+          const failure = chunk.reason.failure;
+          throw new NoteStoreError('llm-failed', `The model call failed: ${failure?.message ?? 'unknown error'}`);
+        } else if (chunk?.type === 'finish' && chunk.reason?.kind === 'aborted') {
+          throw new NoteStoreError('timeout', 'The model did not answer in time.');
+        }
+      }
+    } catch (error) {
+      if (error instanceof NoteStoreError) throw error;
+      if (error?.name === 'AbortError' || error?.name === 'TimeoutError') {
         throw new NoteStoreError('timeout', 'The model did not answer in time.');
       }
+      throw new NoteStoreError('llm-failed', `The model call failed: ${error?.message ?? error}`);
     }
-  } catch (error) {
-    if (error instanceof NoteStoreError) throw error;
-    if (error?.name === 'AbortError' || error?.name === 'TimeoutError') {
-      throw new NoteStoreError('timeout', 'The model did not answer in time.');
-    }
-    throw new NoteStoreError('llm-failed', `The model call failed: ${error?.message ?? error}`);
+    return output;
+  };
+
+  let cleaned = cleanOptimizedText(await run(system));
+  if (cleaned === '' && system !== OPTIMIZE_SYSTEM) {
+    // A malformed custom preset should not cost the user the optimization;
+    // retry once with the built-in instruction.
+    cleaned = cleanOptimizedText(await run(OPTIMIZE_SYSTEM));
   }
-  const cleaned = cleanOptimizedText(output);
   if (cleaned === '') {
     throw new NoteStoreError('llm-failed', 'The model returned no text.');
   }

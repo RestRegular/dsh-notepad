@@ -144,6 +144,8 @@ window.__ModuleLoader__.load({
       shortcuts: { ...SHORTCUT_DEFAULTS },
       defaultWidth: DEFAULT_W,
       defaultHeight: DEFAULT_H,
+      defaultX: null,
+      defaultY: null,
     });
 
     /** @param {unknown} raw @returns {any} */
@@ -175,6 +177,8 @@ window.__ModuleLoader__.load({
         shortcuts,
         defaultWidth: clampInt(value.defaultWidth, MIN_W, 1600, base.defaultWidth),
         defaultHeight: clampInt(value.defaultHeight, MIN_H, 1200, base.defaultHeight),
+        defaultX: Number.isFinite(value.defaultX) ? Math.round(value.defaultX) : null,
+        defaultY: Number.isFinite(value.defaultY) ? Math.round(value.defaultY) : null,
       };
     }
 
@@ -519,7 +523,7 @@ window.__ModuleLoader__.load({
         imagePasteSaved: '已保存到 .dsh/notepad/images',
         settingsTab: '记事本',
         settingsTitle: '记事本设置',
-        settingsIntro: '所有修改即时生效，并保存在本机。设置面板关闭后浮窗会立刻套用新样式。',
+        settingsIntro: '所有修改即时生效。',
         appearance: '外观',
         theme: '配色主题',
         themeHost: '跟随宿主',
@@ -582,14 +586,18 @@ window.__ModuleLoader__.load({
         aiPresetOutline: '分点大纲',
         aiPresetCustom: '自定义',
         aiCustomPrompt: '自定义提示词',
+        aiPresetPrompt: '预设提示词',
+        aiPresetHint: '预设内容不可编辑；选择「自定义」后可修改。',
         aiCustomHint: '仅对记事本的 AI 优化请求生效；请保留 Markdown、代码与文件路径。',
         aiPromptHint: '优化结果仍会强制只返回正文，不会添加解释或代码围栏。',
         windowSection: '窗口',
         defaultWidth: '默认宽度',
         defaultHeight: '默认高度',
-        resetDefaultSize: '恢复默认尺寸数值',
+        resetDefaultSize: '恢复默认位置和尺寸数值',
+        useCurrentGeometry: '将当前位置和尺寸设为默认',
+        geometrySaved: '已将当前位置和尺寸设为默认',
         applyResetGeometry: '立即恢复浮窗位置和尺寸',
-        geometryHint: '默认停靠在右下角；复位后使用上面的默认宽高。',
+        geometryHint: '默认停靠在右下角；点击「将当前位置和尺寸设为默认」可捕获当前面板的位置与尺寸。',
         copySegment: '复制此段',
         copySelected: '复制选中的 {n} 段',
         workspaceMenu: '切换工作区',
@@ -603,7 +611,6 @@ window.__ModuleLoader__.load({
         optimizeSelection: 'AI 优化选中内容',
         optimizeSelectionEmpty: '选中的内容为空',
         selectionOptimized: '已优化选中内容',
-        saveSettingsNote: '这些设置只保存在当前浏览器，不会写入工作区文件。',
       },
       en: {
         title: 'Notepad',
@@ -741,7 +748,7 @@ window.__ModuleLoader__.load({
         imagePasteSaved: 'Saved under .dsh/notepad/images',
         settingsTab: 'Notepad',
         settingsTitle: 'Notepad settings',
-        settingsIntro: 'Changes apply immediately and are stored on this device. Closing the settings panel updates the floating notepad right away.',
+        settingsIntro: 'Changes apply immediately.',
         appearance: 'Appearance',
         theme: 'Color theme',
         themeHost: 'Follow host',
@@ -804,14 +811,18 @@ window.__ModuleLoader__.load({
         aiPresetOutline: 'Outline',
         aiPresetCustom: 'Custom',
         aiCustomPrompt: 'Custom prompt',
+        aiPresetPrompt: 'Preset prompt',
+        aiPresetHint: 'Preset text is read-only; choose Custom to edit it.',
         aiCustomHint: 'Only used for notepad AI requests; keep Markdown, code, and file paths.',
         aiPromptHint: 'The result is still forced to plain rewritten text with no explanation or fence.',
         windowSection: 'Window',
         defaultWidth: 'Default width',
         defaultHeight: 'Default height',
-        resetDefaultSize: 'Restore default size values',
+        resetDefaultSize: 'Restore default position and size values',
+        useCurrentGeometry: 'Use the current position and size as default',
+        geometrySaved: 'Saved the current position and size as default',
         applyResetGeometry: 'Reset window position and size now',
-        geometryHint: 'The default dock is the bottom-right corner; a reset uses the default width and height above.',
+        geometryHint: 'The default dock is the bottom-right corner; use "Use the current position and size as default" to capture the panel where it is now.',
         copySegment: 'Copy this segment',
         copySelected: 'Copy {n} selected',
         workspaceMenu: 'Switch workspace',
@@ -825,7 +836,6 @@ window.__ModuleLoader__.load({
         optimizeSelection: 'Improve selected text with AI',
         optimizeSelectionEmpty: 'The selection is empty',
         selectionOptimized: 'Improved the selected text',
-        saveSettingsNote: 'These settings live in this browser only; workspace files are untouched.',
       },
     };
 
@@ -1350,11 +1360,18 @@ window.__ModuleLoader__.load({
 .dsh-np-btn[data-active=true]{background:color-mix(in srgb,var(--np-accent) 12%,transparent);color:var(--np-accent)}
 .dsh-np-btn[data-accent=true]{background:var(--np-accent);color:var(--np-accent-fg)}
 .dsh-np-btn[data-accent=true]:hover:not(:disabled){background:color-mix(in srgb,var(--np-accent) 88%,#000);color:var(--np-accent-fg)}
+.dsh-np-btn[data-danger=true]:hover:not(:disabled){color:var(--dsw-alias-state-error-primary,#e25555);background:var(--dsw-alias-interactive-bg-hover-danger,rgb(236 19 19/.08))}
 .dsh-np-btn:disabled{opacity:.38;cursor:default;background:transparent;color:var(--dsw-alias-label-tertiary,#6b7280)}
 .dsh-np-btn:focus-visible,.dsh-np-segbtn:focus-visible,.dsh-np-link:focus-visible,.dsh-np-empty-add:focus-visible,.dsh-np-toast-action:focus-visible,.dsh-np-selectall input:focus-visible,.dsh-np-check input:focus-visible,.dsh-np-title-add:focus-visible,.dsh-np-preview-btn:focus-visible,.dsh-np-confirm-btn:focus-visible,button.dsh-np-hint:focus-visible,.dsh-np-restore:focus-visible,.dsh-np-img-open:focus-visible,.dsh-np-img-remove:focus-visible{outline:2px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#4176e6));outline-offset:-2px}
 .dsh-np-body{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;padding:8px 10px 0;opacity:1;transition:opacity .16s ease,visibility 0s linear 0s}
 .dsh-np-card[data-minimized=true] .dsh-np-body{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .16s ease,visibility 0s linear .16s}
-.dsh-np-tools{display:flex;align-items:center;flex-wrap:wrap;gap:4px;flex:none;padding:0 2px 7px;border-bottom:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08))}
+.dsh-np-tools{display:flex;align-items:flex-start;flex-wrap:nowrap;gap:4px;flex:none;height:35px;box-sizing:border-box;padding:0 2px;border-bottom:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08));overflow-x:auto;overflow-y:hidden;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-scrollbar-bg-l2,rgb(15 23 42/.22)) transparent}
+.dsh-np-tools::-webkit-scrollbar{height:7px;background:transparent}
+.dsh-np-tools::-webkit-scrollbar-track{background:transparent}
+.dsh-np-tools::-webkit-scrollbar-thumb{background:var(--dsw-alias-scrollbar-bg-l2,rgb(15 23 42/.22));border:2px solid transparent;background-clip:content-box;border-radius:999px}
+.dsh-np-tools:hover::-webkit-scrollbar-thumb{border-width:1px;background:var(--dsw-alias-scrollbar-hover-l2,rgb(15 23 42/.36));background-clip:content-box}
+.dsh-np-tools>*{flex:none}
+.dsh-np-tools>.dsh-np-spacer{flex:1 1 0;min-width:8px}
 .dsh-np-selectall{display:inline-flex;align-items:center;gap:6px;min-width:0;cursor:pointer;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11px;white-space:nowrap}
 .dsh-np-selectall input{width:14px;height:14px;margin:0;accent-color:var(--np-accent);cursor:pointer;flex:none}
 .dsh-np-selectall input:disabled{cursor:default;opacity:.45}
@@ -1468,13 +1485,18 @@ button.dsh-np-hint:hover{opacity:1;color:var(--dsw-alias-label-secondary,#4b5563
 [data-row-key^="workspace:"][data-np-unsent]{position:relative}
 [data-row-key^="workspace:"][data-np-unsent]::after{content:attr(data-np-unsent);position:absolute;top:-4px;left:1px;z-index:2;min-width:15px;height:15px;padding:0 4px;box-sizing:border-box;border-radius:8px;background:var(--dsw-alias-state-business-primary,#4176e6);color:#fff;font-size:9.5px;font-weight:700;line-height:15px;text-align:center;font-variant-numeric:tabular-nums;pointer-events:none;box-shadow:0 0 0 1.5px var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-layer-1,#fff))}
 @keyframes dsh-np-item-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(-4px) scale(.98)}}
-.dsh-np-set{display:flex;flex-direction:column;gap:12px;max-width:820px;padding:2px 0;font-size:13px;color:var(--dsw-alias-label-primary,#1f2430)}
+.dsh-np-set{display:flex;flex-direction:column;gap:12px;max-width:820px;padding:2px 0;font-size:13px;color:var(--dsw-alias-label-primary,#1f2430);--np-set-accent:var(--dsw-alias-state-business-primary,#4176e6);--np-set-tint:transparent}
+.dsh-np-set[data-np-theme=ocean]{--np-set-accent:#2f6fed;--np-set-tint:#2f6fed}
+.dsh-np-set[data-np-theme=violet]{--np-set-accent:#7c5cf0;--np-set-tint:#7c5cf0}
+.dsh-np-set[data-np-theme=emerald]{--np-set-accent:#12986b;--np-set-tint:#12986b}
+.dsh-np-set[data-np-theme=amber]{--np-set-accent:#c07a11;--np-set-tint:#f0a61f}
+.dsh-np-set[data-np-theme=rose]{--np-set-accent:#d64b76;--np-set-tint:#d64b76}
 .dsh-np-set-head{display:flex;flex-direction:column;gap:3px}
 .dsh-np-set-title{font-size:15px;font-weight:650;line-height:1.35}
 .dsh-np-set-intro{font-size:12px;line-height:1.55;color:var(--dsw-alias-label-secondary,#4b5563)}
 .dsh-np-set-grid{display:flex;flex-direction:column;gap:10px}
-.dsh-np-set-card{border:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08));border-radius:12px;background:var(--dsw-alias-bg-layer-1,#fff);overflow:visible}
-.dsh-np-set-card-head{display:flex;align-items:center;gap:7px;padding:9px 13px;border-bottom:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08));font-size:12.5px;font-weight:650;line-height:1.4}
+.dsh-np-set-card{border:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08));border-radius:12px;background:color-mix(in srgb,var(--np-set-tint) 4%,var(--dsw-alias-bg-layer-1,#fff));overflow:visible}
+.dsh-np-set-card-head{display:flex;align-items:center;gap:7px;padding:9px 13px;border-bottom:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08));font-size:12.5px;font-weight:650;line-height:1.4;background:linear-gradient(120deg,color-mix(in srgb,var(--np-set-accent) 7%,transparent),transparent 62%)}
 .dsh-np-set-card-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:11px 16px;padding:11px 13px}
 .dsh-np-set-field{display:flex;flex-direction:column;gap:5px;min-width:0}
 .dsh-np-set-field[data-wide=true]{grid-column:1/-1}
@@ -1484,24 +1506,25 @@ button.dsh-np-hint:hover{opacity:1;color:var(--dsw-alias-label-secondary,#4b5563
 .dsh-np-drop{position:relative;min-width:0;width:100%}
 .dsh-np-drop-btn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:30px;box-sizing:border-box;padding:4px 9px;border:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.1));border-radius:8px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1f2430);font:inherit;font-size:12.5px;line-height:1.4;text-align:left;cursor:pointer;outline:none}
 .dsh-np-drop-btn:hover{border-color:var(--dsw-alias-border-l2,rgb(15 23 42/.18))}
-.dsh-np-drop-btn:focus-visible{border-color:var(--dsw-alias-state-business-primary,#4176e6);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 20%,transparent)}
+.dsh-np-drop-btn:focus-visible{border-color:var(--np-set-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--np-set-accent) 20%,transparent)}
 .dsh-np-drop-value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsh-np-drop-menu{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:60;display:flex;flex-direction:column;gap:1px;max-height:260px;overflow-y:auto;padding:4px;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.14));border-radius:9px;background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:var(--dsw-elevation-prominent,0 14px 34px rgb(15 23 42/.22));animation:dsh-np-fade .12s ease-out}
 .dsh-np-drop-item{display:flex;align-items:center;gap:6px;width:100%;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#4b5563);font:inherit;font-size:12px;line-height:1.4;text-align:left;cursor:pointer}
 .dsh-np-drop-item:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));color:var(--dsw-alias-label-primary,#1f2430)}
-.dsh-np-drop-item[data-active=true]{color:var(--dsw-alias-state-business-primary,#4176e6);background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 9%,transparent);font-weight:600}
+.dsh-np-drop-item[data-active=true]{color:var(--np-set-accent);background:color-mix(in srgb,var(--np-set-accent) 9%,transparent);font-weight:600}
 .dsh-np-drop-check{margin-left:auto;flex:none}
 .dsh-np-set-number,.dsh-np-key{width:100%;box-sizing:border-box;min-height:30px;padding:4px 9px;border:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.1));border-radius:8px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1f2430);font:inherit;font-size:12.5px;outline:none}
-.dsh-np-set-number:focus,.dsh-np-key:focus{border-color:var(--dsw-alias-state-business-primary,#4176e6);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 18%,transparent)}
+.dsh-np-set-number:focus,.dsh-np-key:focus{border-color:var(--np-set-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--np-set-accent) 18%,transparent)}
 .dsh-np-set-number:disabled,.dsh-np-key:disabled{opacity:.45;cursor:default}
 .dsh-np-key{font-family:var(--ds-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);cursor:text;letter-spacing:.02em}
 .dsh-np-set-textarea{width:100%;box-sizing:border-box;min-height:92px;padding:7px 9px;border:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.1));border-radius:8px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1f2430);font:inherit;font-size:12.5px;line-height:1.55;resize:vertical;outline:none}
-.dsh-np-set-textarea:focus{border-color:var(--dsw-alias-state-business-primary,#4176e6);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 18%,transparent)}
+.dsh-np-set-textarea:focus{border-color:var(--np-set-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--np-set-accent) 18%,transparent)}
+.dsh-np-set-textarea[data-readonly=true]{background:var(--dsw-alias-bg-layer-2,#f7f7f9);color:var(--dsw-alias-label-secondary,#4b5563);cursor:default}
 .dsh-np-toggle{display:inline-flex;align-items:center;gap:9px;padding:3px 11px 3px 4px;border:1px solid transparent;border-radius:999px;background:transparent;color:inherit;font:inherit;cursor:pointer;outline:none}
 .dsh-np-toggle:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06))}
-.dsh-np-toggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4176e6);outline-offset:1px}
+.dsh-np-toggle:focus-visible{outline:2px solid var(--np-set-accent);outline-offset:1px}
 .dsh-np-toggle-track{position:relative;display:inline-block;flex:none;width:34px;height:18px;border-radius:999px;background:var(--dsw-alias-border-l3,rgb(15 23 42/.2));transition:background .15s ease}
-.dsh-np-toggle.on .dsh-np-toggle-track{background:var(--dsw-alias-state-business-primary,#4176e6)}
+.dsh-np-toggle.on .dsh-np-toggle-track{background:var(--np-set-accent)}
 .dsh-np-toggle-knob{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgb(0 0 0/.25);transition:transform .15s ease}
 .dsh-np-toggle.on .dsh-np-toggle-knob{transform:translateX(16px)}
 .dsh-np-toggle-label{font-size:12px;line-height:1.4;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap}
@@ -1509,12 +1532,13 @@ button.dsh-np-hint:hover{opacity:1;color:var(--dsw-alias-label-secondary,#4b5563
 .dsh-np-set-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .dsh-np-set-btn{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:3px 11px;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.14));border-radius:8px;background:var(--dsw-alias-bg-layer-2,#fff);color:var(--dsw-alias-label-primary,#1f2430);font:inherit;font-size:12px;cursor:pointer}
 .dsh-np-set-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06))}
-.dsh-np-set-btn[data-primary=true]{border-color:transparent;background:var(--dsw-alias-state-business-primary,#4176e6);color:#fff}
+.dsh-np-set-btn[data-primary=true]{border-color:transparent;background:var(--np-set-accent);color:#fff}
 .dsh-np-set-btn[data-danger=true]{color:var(--dsw-alias-state-error-primary,#e25555)}
 .dsh-np-set-note{padding:0 13px 11px;font-size:11px;line-height:1.5;color:var(--dsw-alias-label-secondary,#4b5563)}
 .dsh-np-set-kbd{display:inline-block;padding:0 5px;border:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.12));border-radius:4px;background:var(--dsw-alias-bg-layer-2,#fff);font-family:var(--ds-font-family-code,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:10.5px;line-height:16px}
-body[data-ds-dark-theme] .dsh-np-set-card,body[data-ds-dark-theme] .dsh-np-drop-btn,body[data-ds-dark-theme] .dsh-np-drop-menu,body[data-ds-dark-theme] .dsh-np-set-number,body[data-ds-dark-theme] .dsh-np-key,body[data-ds-dark-theme] .dsh-np-set-textarea,body[data-ds-dark-theme] .dsh-np-set-btn{background:var(--dsw-alias-bg-layer-1,#1f1f22);color:var(--dsw-alias-label-primary,#e8e8ea)}
+body[data-ds-dark-theme] .dsh-np-set-card,body[data-ds-dark-theme] .dsh-np-drop-btn,body[data-ds-dark-theme] .dsh-np-drop-menu,body[data-ds-dark-theme] .dsh-np-set-number,body[data-ds-dark-theme] .dsh-np-key,body[data-ds-dark-theme] .dsh-np-set-textarea,body[data-ds-dark-theme] .dsh-np-set-btn{background:color-mix(in srgb,var(--np-set-tint) 5%,var(--dsw-alias-bg-layer-1,#1f1f22));color:var(--dsw-alias-label-primary,#e8e8ea)}
 body[data-ds-dark-theme] .dsh-np-set-hint,body[data-ds-dark-theme] .dsh-np-set-intro,body[data-ds-dark-theme] .dsh-np-toggle-label{color:var(--dsw-alias-label-secondary,#a8adb8)}
+body[data-ds-dark-theme] .dsh-np-set-textarea[data-readonly=true]{background:color-mix(in srgb,var(--np-set-tint) 3%,var(--dsw-alias-bg-layer-2,#252528));color:var(--dsw-alias-label-secondary,#a8adb8)}
 body[data-ds-dark-theme] .dsh-np-toggle-knob{background:#f4f5f7}
 body[data-ds-dark-theme] .dsh-np-ws-menu{background:var(--dsw-alias-bg-layer-1,#1f1f22)}
 @keyframes dsh-np-pulse{0%,100%{opacity:1}50%{opacity:.35}}
@@ -1931,8 +1955,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
     function readStoredUi() {
       const settings = readSettings();
       const base = {
-        x: null,
-        y: null,
+        x: settings.defaultX,
+        y: settings.defaultY,
         width: settings.defaultWidth,
         height: settings.defaultHeight,
         minimized: false,
@@ -1945,8 +1969,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const parsed = JSON.parse(raw);
         if (parsed === null || typeof parsed !== 'object') return base;
         return {
-          x: Number.isFinite(parsed.x) ? parsed.x : null,
-          y: Number.isFinite(parsed.y) ? parsed.y : null,
+          x: Number.isFinite(parsed.x) ? parsed.x : settings.defaultX,
+          y: Number.isFinite(parsed.y) ? parsed.y : settings.defaultY,
           width: Number.isFinite(parsed.width) ? parsed.width : settings.defaultWidth,
           height: Number.isFinite(parsed.height) ? parsed.height : settings.defaultHeight,
           minimized: parsed.minimized === true,
@@ -2090,6 +2114,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
     const visibilityHandlers = new Set();
     const historyHandlers = new Set();
     const saveHandlers = new Set();
+    const geometryHandlers = new Set();
 
     /** Whether the host shortcut service already owns the registered chords. */
     const hostHandledShortcuts = new Set();
@@ -2127,6 +2152,19 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       return invokeHandlers(saveHandlers);
     }
 
+    /** Read the current floating-window geometry from the mounted overlay. */
+    function requestGeometrySnapshot() {
+      for (const handler of geometryHandlers) {
+        try {
+          const value = handler();
+          if (value !== null && value !== undefined) return value;
+        } catch {
+          /* Try the next overlay. */
+        }
+      }
+      return null;
+    }
+
     /**
      * Reset geometry from a surface that may render before the floating
      * notepad mounts (the settings tab). The mounted overlay wins; without
@@ -2139,8 +2177,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const base = readStoredUi();
         const next = {
           ...base,
-          x: null,
-          y: null,
+          x: settings.defaultX,
+          y: settings.defaultY,
           width: settings.defaultWidth,
           height: settings.defaultHeight,
         };
@@ -2238,11 +2276,13 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const imageDeleteTimersRef = useRef(new Map());
       const settingsRef = useRef(settings);
       const collapsedRef = useRef(collapsed);
+      const uiRef = useRef(ui);
       const textSelectionRef = useRef(null);
       const pendingSelectionRef = useRef(null);
       const historyRef = useRef({ entries: [], index: 0 });
       const historyRootRef = useRef('');
       const historyApplyingRef = useRef(false);
+      const textHistoryRef = useRef(null);
       const leaveTimersRef = useRef(new Set());
       const archiveListRef = useRef(null);
       const wsWrapRef = useRef(null);
@@ -2251,6 +2291,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
 
       settingsRef.current = settings;
       collapsedRef.current = collapsed;
+      uiRef.current = ui;
 
       const setSelection = (next) => {
         selectedRef.current = next;
@@ -2298,6 +2339,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
 
       // Undo / redo history -------------------------------------------------
       const resetHistory = () => {
+        if (textHistoryRef.current !== null && textHistoryRef.current.timer) {
+          clearTimeout(textHistoryRef.current.timer);
+        }
+        textHistoryRef.current = null;
         historyRef.current = { entries: [], index: 0 };
         setHistoryVer((version) => version + 1);
       };
@@ -2315,6 +2360,35 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         if (state.entries.length > limit) state.entries.splice(0, state.entries.length - limit);
         state.index = state.entries.length;
         setHistoryVer((version) => version + 1);
+      };
+
+      /**
+       * Finish a burst of text / title edits. Typing is recorded as one
+       * coalesced step so plugin undo never jumps over (and loses) text that
+       * was typed after the previous structural operation. Native undo inside
+       * the field stays untouched.
+       */
+      const flushTextHistory = (record = true) => {
+        const pending = textHistoryRef.current;
+        if (pending === null) return;
+        if (pending.timer) clearTimeout(pending.timer);
+        textHistoryRef.current = null;
+        if (record && !historyApplyingRef.current) {
+          recordHistory(pending.before, segmentsRef.current);
+        }
+      };
+
+      const noteTextEdit = (id) => {
+        const pending = textHistoryRef.current;
+        if (pending !== null && pending.id === id) {
+          if (pending.timer) clearTimeout(pending.timer);
+          pending.timer = setTimeout(() => flushTextHistory(), 700);
+          return;
+        }
+        flushTextHistory();
+        const next = { id, before: segmentsRef.current, timer: 0 };
+        next.timer = setTimeout(() => flushTextHistory(), 700);
+        textHistoryRef.current = next;
       };
 
       /** A plain text edit is not a recorded step, but it invalidates redo. */
@@ -2339,6 +2413,9 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       };
 
       const applyHistory = (direction) => {
+        // Any still-pending typing burst is the newest change; commit it first
+        // so undo / redo can never silently drop that text.
+        flushTextHistory();
         const state = historyRef.current;
         const undo = direction !== 'redo';
         const entry = undo ? state.entries[state.index - 1] : state.entries[state.index];
@@ -2446,6 +2523,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       useEffect(() => () => {
         for (const timer of leaveTimersRef.current) clearTimeout(timer);
         leaveTimersRef.current.clear();
+        if (textHistoryRef.current !== null && textHistoryRef.current.timer) {
+          clearTimeout(textHistoryRef.current.timer);
+        }
+        textHistoryRef.current = null;
       }, []);
 
       // Re-grow cards when the height limit or typography changes --------
@@ -2563,8 +2644,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const defaults = settingsRef.current;
         setUi((previous) => clampUi({
           ...previous,
-          x: null,
-          y: null,
+          x: defaults.defaultX,
+          y: defaults.defaultY,
           width: defaults.defaultWidth,
           height: defaults.defaultHeight,
         }));
@@ -2625,6 +2706,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       saveNowRef.current = saveNow;
 
       const commitSegments = (next, options = {}) => {
+        flushTextHistory();
         const before = segmentsRef.current;
         invalidateBatchUndo();
         segmentsRef.current = next;
@@ -2925,13 +3007,24 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const visibility = () => setUi((previous) => clampUi({ ...previous, hidden: !previous.hidden }));
         const history = (direction) => applyHistory(direction);
         const save = () => saveNowRef.current?.({ force: true });
+        const geometry = () => {
+          const current = uiRef.current;
+          return {
+            x: current.x,
+            y: current.y,
+            width: current.width,
+            height: current.height,
+          };
+        };
         visibilityHandlers.add(visibility);
         historyHandlers.add(history);
         saveHandlers.add(save);
+        geometryHandlers.add(geometry);
         return () => {
           visibilityHandlers.delete(visibility);
           historyHandlers.delete(history);
           saveHandlers.delete(save);
+          geometryHandlers.delete(geometry);
         };
       }, []);
 
@@ -3035,6 +3128,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const updateSegmentText = (id, value) => {
         invalidateBatchUndo();
         discardRedoHistory();
+        noteTextEdit(id);
         const next = segmentsRef.current.map((segment) => (segment.id === id ? { ...segment, text: value } : segment));
         segmentsRef.current = next;
         setSegments(next);
@@ -3057,6 +3151,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         if (target === undefined || target.title === title) return;
         invalidateBatchUndo();
         discardRedoHistory();
+        noteTextEdit(id);
         const next = segmentsRef.current.map((segment) => (segment.id === id ? { ...segment, title } : segment));
         segmentsRef.current = next;
         setSegments(next);
@@ -4404,11 +4499,12 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const canUndo = historyRef.current.index > 0;
       const canRedo = historyRef.current.index < historyRef.current.entries.length;
       const currentPath = normalizedCwd(binding.cwd);
-      const workspaceItems = wsList.filter((workspace) =>
-        workspace.hasContent === true
-        || workspace.id === currentWsId
-        || normalizedCwd(workspace.path) === currentPath);
-      if (!workspaceItems.some((workspace) => normalizedCwd(workspace.path) === currentPath)) {
+      // Only workspaces whose note actually contains a non-empty segment.
+      const workspaceItems = wsList.filter((workspace) => workspace.hasContent === true);
+      const liveCurrentHasContent = segments.some((segment) =>
+        (typeof segment.text === 'string' && segment.text.trim() !== '')
+        || (Array.isArray(segment.images) && segment.images.length > 0));
+      if (liveCurrentHasContent && !workspaceItems.some((workspace) => normalizedCwd(workspace.path) === currentPath)) {
         workspaceItems.unshift({
           id: currentWsId,
           path: binding.cwd,
@@ -4499,17 +4595,6 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         h('span', { className: 'dsh-np-title' }, t('title')),
         workspaceNode,
         h('span', { className: 'dsh-np-spacer' }),
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'dsh-np-btn',
-            title: `${t('resetShortcut')} · ${settings.shortcuts.reset}`,
-            'aria-label': t('resetShortcut'),
-            onClick: resetGeometry,
-          },
-          h(ResetIcon, { size: 15 }),
-        ),
         h(
           'button',
           {
@@ -4993,6 +5078,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                     }
                   },
                   onBlur: () => {
+                    flushTextHistory();
                     if (settingsRef.current.saveMode !== 'manual' && dirtyRef.current) saveNowRef.current?.();
                     if ((segment.title ?? '') === '') setTitleEditing('');
                   },
@@ -5138,6 +5224,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                   onChange: (event) => onSegmentChange(event, segment.id),
                   onKeyDown: (event) => onSegmentKeyDown(event, segment.id),
                   onBlur: () => {
+                    flushTextHistory();
                     if (settingsRef.current.saveMode !== 'manual' && dirtyRef.current) saveNowRef.current?.();
                   },
                 }),
@@ -5808,7 +5895,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
 
       return h(
         'div',
-        { className: 'dsh-np-set' },
+        {
+          className: 'dsh-np-set',
+          'data-np-theme': THEME_IDS.includes(settings.theme) ? settings.theme : 'host',
+        },
         h(
           'div',
           { className: 'dsh-np-set-head' },
@@ -5911,15 +6001,23 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               ariaLabel: t('aiPreset'),
               onChange: (value) => commit({ aiPreset: value }),
             })),
-            field(t('aiCustomPrompt'), t('aiCustomHint'), h('textarea', {
-              className: 'dsh-np-set-textarea',
-              value: settings.aiCustom,
-              maxLength: 4000,
-              spellCheck: false,
-              disabled: settings.aiPreset !== 'custom',
-              'aria-label': t('aiCustomPrompt'),
-              onChange: (event) => commit({ aiCustom: String(event.target?.value ?? '') }),
-            }), true),
+            settings.aiPreset === 'custom'
+              ? field(t('aiCustomPrompt'), t('aiCustomHint'), h('textarea', {
+                  className: 'dsh-np-set-textarea',
+                  value: settings.aiCustom,
+                  maxLength: 4000,
+                  spellCheck: false,
+                  'aria-label': t('aiCustomPrompt'),
+                  onChange: (event) => commit({ aiCustom: String(event.target?.value ?? '') }),
+                }), true)
+              : field(t('aiPresetPrompt'), t('aiPresetHint'), h('textarea', {
+                  className: 'dsh-np-set-textarea',
+                  value: AI_PRESET_PROMPTS[settings.aiPreset] ?? AI_PRESET_PROMPTS.balanced,
+                  readOnly: true,
+                  spellCheck: false,
+                  'data-readonly': 'true',
+                  'aria-label': t('aiPresetPrompt'),
+                }), true),
           ], t('aiPromptHint')),
           card(t('windowSection'), 'window', [
             field(t('defaultWidth'), '', numberInput({
@@ -5942,15 +6040,30 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               h('button', {
                 type: 'button',
                 className: 'dsh-np-set-btn',
+                'data-primary': 'true',
                 onClick: () => {
-                  commit({ defaultWidth: DEFAULT_W, defaultHeight: DEFAULT_H });
+                  const snapshot = requestGeometrySnapshot();
+                  const fallback = snapshot === null ? clampUi(readStoredUi()) : snapshot;
+                  commit({
+                    defaultX: fallback.x,
+                    defaultY: fallback.y,
+                    defaultWidth: fallback.width,
+                    defaultHeight: fallback.height,
+                  });
+                  announce(t('geometrySaved'));
+                },
+              }, t('useCurrentGeometry')),
+              h('button', {
+                type: 'button',
+                className: 'dsh-np-set-btn',
+                onClick: () => {
+                  commit({ defaultWidth: DEFAULT_W, defaultHeight: DEFAULT_H, defaultX: null, defaultY: null });
                   announce(t('resetDefaultSize'));
                 },
               }, t('resetDefaultSize')),
               h('button', {
                 type: 'button',
                 className: 'dsh-np-set-btn',
-                'data-primary': 'true',
                 onClick: () => {
                   resetWindowGeometry();
                   announce(t('uiReset'));
@@ -5962,8 +6075,75 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         notice === ''
           ? null
           : h('div', { className: 'dsh-np-set-note', role: 'status' }, notice),
-        h('div', { className: 'dsh-np-set-note' }, t('saveSettingsNote')),
       );
+    }
+
+    // ------------------------------------------------------------------
+    // Settings navigation icon
+    // ------------------------------------------------------------------
+    const NAV_ICON_NS = 'http://www.w3.org/2000/svg';
+    const NAV_VIEW_BOX = '0 0 16 16';
+    /** 16-grid line icon of the notepad, matching the host nav stroke style. */
+    const NAV_DOM = [
+      {
+        tag: 'rect',
+        attrs: {
+          x: '2.2', y: '1.9', width: '11.6', height: '12.2', rx: '2.2',
+          fill: 'none', stroke: 'currentColor', 'stroke-width': '1.3',
+        },
+      },
+      {
+        tag: 'path',
+        attrs: {
+          d: 'M5.2 5.8h5.6M5.2 8.2h5.6M5.2 10.6h3.4',
+          fill: 'none', stroke: 'currentColor', 'stroke-width': '1.3',
+          'stroke-linecap': 'round', 'data-dsh-notepad-logo': '1',
+        },
+      },
+    ];
+
+    function navSvgNode({ tag, attrs, children }) {
+      const node = document.createElementNS(NAV_ICON_NS, tag);
+      for (const [name, value] of Object.entries(attrs ?? {})) node.setAttribute(name, String(value));
+      for (const child of children ?? []) node.appendChild(navSvgNode(child));
+      return node;
+    }
+
+    function paintNotepadNavIcon(svg) {
+      if (svg.querySelector('[data-dsh-notepad-logo]') !== null) return;
+      svg.setAttribute('viewBox', NAV_VIEW_BOX);
+      svg.replaceChildren(...NAV_DOM.map(navSvgNode));
+    }
+
+    /**
+     * The host draws a generic gear for every settings section. Replace it on
+     * our own row only, identified by the current translated label, with the
+     * plugin's notepad line art. If the host class names change, nothing is
+     * touched and the original gear remains.
+     */
+    function wrapSettingsNav(labelOf) {
+      const paint = () => {
+        try {
+          if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return;
+          const label = typeof labelOf === 'function' ? labelOf() : labelOf;
+          for (const cell of document.querySelectorAll('[class*="_navCell"]')) {
+            const text = (cell.textContent ?? '').trim();
+            if (text !== label) continue;
+            cell.classList?.add('dsh-notepad-nav');
+            const icon = cell.querySelector('[class*="_navIcon"]');
+            if (icon !== null && icon !== undefined) paintNotepadNavIcon(icon);
+          }
+        } catch {
+          /* Keep the host gear if the DOM shape changes. */
+        }
+      };
+      paint();
+      const Observer = typeof globalThis !== 'undefined' ? globalThis.MutationObserver : undefined;
+      if (typeof Observer !== 'function' || typeof document === 'undefined' || document.body === null
+        || document.body === undefined) return () => {};
+      const observer = new Observer(paint);
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+      return () => observer.disconnect();
     }
 
     // ------------------------------------------------------------------
@@ -6002,6 +6182,13 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           }
         };
       }, 'dsh-notepad: dictionaries');
+
+      // Settings sidebar icon: the host's generic gear becomes our line icon.
+      try {
+        ctx.effect(() => wrapSettingsNav(() => translate('settingsTab')), 'dsh-notepad: settings nav icon');
+      } catch (error) {
+        console.warn('[dsh-notepad] settings nav icon setup failed:', error?.message ?? error);
+      }
 
       // Register every configurable chord with DSH's shortcut service so it
       // reaches the page even when the host intercepts native key bindings.
@@ -6166,6 +6353,14 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
     return {
       inject: ['slots'],
       apply,
+      // exported for the render smoke test only (the host never reads it)
+      __test: {
+        NAV_DOM,
+        NAV_VIEW_BOX,
+        paintNotepadNavIcon,
+        wrapSettingsNav,
+        parseShortcut,
+      },
     };
   },
 });

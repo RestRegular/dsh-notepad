@@ -183,6 +183,26 @@ const documentShim = {
       select() {},
     };
   },
+  createElementNS(namespace, tag) {
+    const node = {
+      namespace,
+      tagName: String(tag).toUpperCase(),
+      attributes: {},
+      children: [],
+      setAttribute(name, value) { this.attributes[name] = value; },
+      appendChild(child) { this.children.push(child); return child; },
+      replaceChildren(...children) { this.children = children; },
+      querySelector(selector) {
+        if (selector !== '[data-dsh-notepad-logo]') return null;
+        const walk = (item) => {
+          if (item?.attributes?.['data-dsh-notepad-logo'] !== undefined) return true;
+          return Array.isArray(item?.children) && item.children.some(walk);
+        };
+        return this.children.some(walk) ? {} : null;
+      },
+    };
+    return node;
+  },
   querySelector(selector) {
     return selector === '[data-conversation-content]' ? conversationNode : null;
   },
@@ -570,6 +590,18 @@ assert.ok(styleTags[0].textContent.includes('.dsh-np-toggle'), 'settings use tog
 assert.ok(styleTags[0].textContent.includes('.dsh-np-drop'), 'settings use a custom dropdown');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-img-remove{position:absolute;top:-6px;right:-6px'),
   'the image remove button sits on the thumbnail corner');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-tools{display:flex;align-items:flex-start;flex-wrap:nowrap'),
+  'the button bar is a single horizontally scrolling row');
+assert.ok(styleTags[0].textContent.includes('height:35px') && styleTags[0].textContent.includes('overflow-x:auto'),
+  'the button bar reserves a fixed scrollbar row');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-tools::-webkit-scrollbar{height:7px'),
+  'the horizontal scrollbar track keeps a constant height');
+assert.ok(styleTags[0].textContent.includes('border:2px solid transparent;background-clip:content-box'),
+  'the scrollbar thumb starts thin');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-tools:hover::-webkit-scrollbar-thumb{border-width:1px'),
+  'the scrollbar thumb thickens on hover');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-btn[data-danger=true]:hover'),
+  'the toolbar danger item turns red on hover');
 assert.deepEqual(localeRegistered.map((entry) => entry.namespace), ['dsh-notepad']);
 const overlay = registrations.find((entry) => entry.options.name === 'shell.overlay');
 assert.ok(overlay, 'registers shell.overlay');
@@ -578,6 +610,26 @@ assert.equal(overlay.options.order, 70);
 const settingsRegistration = registrations.find((entry) => entry.options.name === 'settings.section');
 assert.ok(settingsRegistration, 'registers a settings.section tab');
 assert.equal(settingsRegistration.options.id, 'notepad');
+
+// Settings sidebar icon: a 16-grid single-color line drawing, not the host gear.
+const navSvg = documentShim.createElementNS('http://www.w3.org/2000/svg', 'svg');
+face.__test.paintNotepadNavIcon(navSvg);
+assert.equal(navSvg.attributes.viewBox, '0 0 16 16', 'the nav icon uses the host 16-grid viewBox');
+assert.equal(navSvg.children.length, 2, 'the nav icon is a frame plus note lines');
+assert.equal(navSvg.children[0].attributes.stroke, 'currentColor');
+assert.equal(navSvg.children[1].attributes['stroke-width'], '1.3');
+const markedCells = [];
+const navCell = {
+  textContent: '记事本',
+  classList: { add(name) { markedCells.push(name); } },
+  querySelector(selector) { return selector.includes('_navIcon') ? navSvg : null; },
+};
+const originalQuerySelectorAll = documentShim.querySelectorAll;
+documentShim.querySelectorAll = (selector) => selector.includes('_navCell') ? [navCell] : originalQuerySelectorAll.call(documentShim, selector);
+const stopNav = face.__test.wrapSettingsNav(() => '记事本');
+documentShim.querySelectorAll = originalQuerySelectorAll;
+assert.ok(markedCells.includes('dsh-notepad-nav'), 'only our settings nav row is marked');
+stopNav();
 
 // ---------------------------------------------------------------------------
 // Render + interactions
@@ -1240,8 +1292,8 @@ assert.equal(resetUi.height, 460, 'reset restores the default height');
 assert.equal(resetUi.x, 1280 - 420 - 24, 'reset parks the card at its default left');
 assert.equal(resetUi.y, 800 - 460 - 24, 'reset parks the card at its default bottom');
 assert.ok(afterReset.text.includes('已复位浮窗位置和尺寸'), 'reset shows feedback');
-assert.ok(findByTitle(afterReset.seen, '复位记事本位置和尺寸 · Ctrl+Shift+R'),
-  'the header exposes a clickable reset button too');
+assert.ok(!findByTitle(afterReset.seen, '复位记事本位置和尺寸 · Ctrl+Shift+R'),
+  'the header reset button is gone; only the shortcut remains');
 
 // Footer shortcut hint cycles --------------------------------------------
 const hintButton = findByClass(afterReset.seen, 'dsh-np-hint');
@@ -1533,6 +1585,11 @@ const themed = await renderRounds(2);
 const themedCard = themed.seen.find(({ element }) => element.type === 'section'
   && element.props['data-dsh-notepad'] === 'true');
 assert.equal(themedCard.element.props['data-np-theme'], 'ocean', 'the color theme reaches the floating card');
+settingsView = renderSettings();
+const themedSettings = settingsView.seen.find(({ element }) => element.props?.className === 'dsh-np-set');
+assert.equal(themedSettings.element.props['data-np-theme'], 'ocean', 'the color theme also reaches the settings UI');
+assert.ok(!settingsView.text.includes('这些设置只保存在当前浏览器'), 'the settings storage note is gone');
+assert.ok(!settingsView.text.includes('并保存在本机'), 'the old settings intro explanation is gone');
 
 settingsView = renderSettings();
 settingsNumber(settingsView.seen, '字号').element.props.onChange({ target: { value: '15' } });
@@ -1581,6 +1638,12 @@ assert.equal(settingsView.seen.find(({ element }) => element.type === 'input'
 
 // AI preset + selection-only optimization.
 settingsView = renderSettings();
+const presetPromptField = settingsView.seen.find(({ element }) => element.type === 'textarea'
+  && element.props['aria-label'] === '预设提示词');
+assert.ok(presetPromptField, 'the selected preset shows its prompt below the dropdown');
+assert.equal(presetPromptField.element.props.readOnly, true, 'the preset prompt is read-only');
+assert.ok(String(presetPromptField.element.props.value).includes('writing assistant'),
+  'the built-in preset prompt is displayed');
 settingsView.seen.find(({ element }) => element.type === 'button'
   && element.props['aria-label'] === '提示词预设').element.props.onClick();
 settingsView = renderSettings();
@@ -1590,7 +1653,8 @@ settingsView.seen.find(({ element }) => element.type === 'button'
 settingsView = renderSettings();
 const customPrompt = settingsView.seen.find(({ element }) => element.type === 'textarea'
   && element.props['aria-label'] === '自定义提示词');
-assert.equal(customPrompt.element.props.disabled, false, 'the custom prompt becomes editable');
+assert.ok(customPrompt, 'the field title switches to the custom prompt');
+assert.notEqual(customPrompt.element.props.readOnly, true, 'the custom prompt becomes editable');
 customPrompt.element.props.onChange({ target: { value: 'CUSTOM PROMPT' } });
 await renderRounds(1);
 
@@ -1655,6 +1719,31 @@ assert.equal(textareas(afterRedoHistory.seen).length, cardsBeforeHistory + 1,
   'redo restores the new card');
 pressUndoRedo(false);
 await renderRounds(2);
+
+// Text typed since the previous operation must survive undo / redo.
+const textHistoryView = await renderRounds(1);
+const preservedArea = textareas(textHistoryView.seen)[0];
+const preservedValue = `${preservedArea.element.props.value}保留文本`;
+preservedArea.element.props.onChange({ target: { value: preservedValue } });
+await new Promise((resolve) => setTimeout(resolve, 800));
+const afterTextHistory = await renderRounds(1);
+await pressButton(afterTextHistory.seen, '新建分段');
+await renderRounds(2);
+pressUndoRedo(false);
+const afterTextUndo = await renderRounds(2);
+assert.equal(textareas(afterTextUndo.seen)[0].element.props.value, preservedValue,
+  'plugin undo keeps text typed after the previous history step');
+assert.equal(textareas(afterTextUndo.seen).length, cardsBeforeHistory,
+  'plugin undo still removes the structural step');
+pressUndoRedo(true);
+const afterTextRedo = await renderRounds(2);
+assert.equal(textareas(afterTextRedo.seen)[0].element.props.value, preservedValue,
+  'plugin redo does not drop the typed text either');
+assert.equal(textareas(afterTextRedo.seen).length, cardsBeforeHistory + 1,
+  'redo restores the structural step');
+pressUndoRedo(false);
+await renderRounds(2);
+
 // A native textarea undo must not be intercepted by the plugin.
 const nativeGuard = listeners.get('keydown');
 const textareaTarget = { tagName: 'TEXTAREA' };
@@ -1712,11 +1801,16 @@ assert.ok(clipboardWrites.at(-1).includes('优化：'), 'copy-selected writes th
 
 // Workspace dropdown: only workspaces with note content, switching opens a session.
 let workspaceView = await renderRounds(2);
-assert.ok(!workspaceView.text.includes('other'), 'a workspace without note content is not listed');
 const workspaceButton = workspaceView.seen.find(({ element }) => element.type === 'button'
   && element.props['aria-label'] === '切换工作区');
 workspaceButton.element.props.onClick();
 workspaceView = await renderRounds(1);
+const menuItems = workspaceView.seen.filter(({ element }) => element.type === 'button'
+  && element.props.role === 'menuitem');
+assert.ok(menuItems.some(({ element }) => elementText(element).includes('demo')),
+  'a workspace with non-empty segments is listed');
+assert.ok(!menuItems.some(({ element }) => elementText(element).includes('other')),
+  'a workspace without note content is not listed');
 const thirdWorkspace = workspaceView.seen.find(({ element }) => element.type === 'button'
   && element.props.role === 'menuitem' && elementText(element).includes('third'));
 assert.ok(thirdWorkspace, 'a workspace with content is listed');
@@ -1757,6 +1851,29 @@ await pressButton(archivedView.seen, '显示归档');
 await renderRounds(2);
 await new Promise((resolve) => setTimeout(resolve, 100));
 assert.ok(archiveScrollCalls > 0, 'opening the archive scrolls to the newest archived card');
+
+// Capture the live panel geometry as the new default.
+settingsView = renderSettings();
+const liveUi = JSON.parse(storage.get('dsh-notepad.ui.v1'));
+const captureButton = settingsView.seen.find(({ element }) => element.type === 'button'
+  && elementText(element) === '将当前位置和尺寸设为默认');
+assert.ok(captureButton, 'the window card offers to capture the current geometry');
+captureButton.element.props.onClick();
+const capturedSettings = JSON.parse(storage.get('dsh-notepad.settings.v1'));
+assert.equal(capturedSettings.defaultWidth, liveUi.width, 'the captured default width matches the panel');
+assert.equal(capturedSettings.defaultHeight, liveUi.height, 'the captured default height matches the panel');
+assert.equal(capturedSettings.defaultX, liveUi.x, 'the captured default x matches the panel');
+assert.equal(capturedSettings.defaultY, liveUi.y, 'the captured default y matches the panel');
+settingsView = renderSettings();
+const restoreDefaults = settingsView.seen.find(({ element }) => element.type === 'button'
+  && elementText(element) === '恢复默认位置和尺寸数值');
+assert.ok(restoreDefaults, 'the window card can restore factory geometry values');
+restoreDefaults.element.props.onClick();
+const restoredSettings = JSON.parse(storage.get('dsh-notepad.settings.v1'));
+assert.equal(restoredSettings.defaultWidth, 420);
+assert.equal(restoredSettings.defaultHeight, 460);
+assert.equal(restoredSettings.defaultX, null);
+assert.equal(restoredSettings.defaultY, null);
 
 // Back to the default look so later assertions stay stable.
 settingsView = renderSettings();

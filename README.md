@@ -1,8 +1,8 @@
 # dsh-notepad
 
-在 DeepSeek Harness 的会话界面里放一张**属于当前工作区**的分段便签浮窗：一行一个问题、一段一个卡片，回车就能拆出下一段；需要时把某一段、或选中后的多段一起插入 / 替换 / 发送到对话框。除了文字，也可以直接**粘贴或选择图片**，输入框里会用缩略芯片显示并可点击预览。0.4 起支持选中、拖拽排序、合并多段；0.5 起空标题只在点击后显示输入框，方向键可切换分段，AI 优化只处理选中的分段并支持撤销 / 缓存；0.6 起插入 / 发送按钮 hover 时展开成「当前会话 / 新会话」按钮组，图片可在浮窗内预览，底部快捷键提示点击轮换，复制全部排除归档，发送行为跟随「设置 > 通用设置」的繁忙发送策略；0.7 起分段改为从上到下、旧→新排列，回车拆分的新卡片紧跟原卡片，段首 Backspace 与上一段合并，空分段按 Backspace 或点删除会直接移除，插入 / 发送 / 归档+删除按钮组会稍候再展开以避免快速划过闪烁，文本达到最大高度才出现滚动条，复位快捷键改为 `Ctrl/Cmd + Shift + R`。0.8 起设置面板新增「记事本」标签页（主题、毛玻璃、字体字号、自动 / 手动保存、撤销步数、提示词预设、按钮组与 hover 阈值、卡片最大高度、默认尺寸）；插件提供撤销 / 重做（输入框内仍是浏览器原生撤销）；分段可折叠、可批量归档 / 删除 / 复制；AI 在分段内有选中文字时只优化选中部分并在完成后重新选中；归档按最新在上并自动滚动；顶部工作区改为只列出有内容工作区的下拉列表；图片不显示名称，删除按钮移到缩略图右上角。
+在 DeepSeek Harness 的会话界面里放一张**属于当前工作区**的分段便签浮窗：一行一个问题、一段一个卡片，回车就能拆出下一段；需要时把某一段、或选中后的多段一起插入 / 替换 / 发送到对话框。除了文字，也可以直接**粘贴或选择图片**，输入框里会用缩略芯片显示并可点击预览。0.4 起支持选中、拖拽排序、合并多段；0.5 起空标题只在点击后显示输入框，方向键可切换分段，AI 优化只处理选中的分段并支持撤销 / 缓存；0.6 起插入 / 发送按钮 hover 时展开成「当前会话 / 新会话」按钮组，图片可在浮窗内预览，底部快捷键提示点击轮换，复制全部排除归档，发送行为跟随「设置 > 通用设置」的繁忙发送策略；0.7 起分段改为从上到下、旧→新排列，回车拆分的新卡片紧跟原卡片，段首 Backspace 与上一段合并，空分段按 Backspace 或点删除会直接移除，插入 / 发送 / 归档+删除按钮组会稍候再展开以避免快速划过闪烁，文本达到最大高度才出现滚动条，复位快捷键改为 `Ctrl/Cmd + Shift + R`。0.8 起设置面板新增「记事本」标签页（主题、毛玻璃、字体字号、自动 / 手动保存、撤销步数、提示词预设、按钮组与 hover 阈值、卡片最大高度、默认尺寸）；插件提供撤销 / 重做（输入框内仍是浏览器原生撤销）；分段可折叠、可批量归档 / 删除 / 复制；AI 在分段内有选中文字时只优化选中部分并在完成后重新选中；归档按最新在上并自动滚动；顶部工作区改为只列出有内容工作区的下拉列表；图片不显示名称，删除按钮移到缩略图右上角。0.9 起工具栏改为固定高度的横向滚动按钮列表（始终预留细滚动条位置，悬停加粗）；撤销 / 重做把输入文字也算进历史，不再吞掉文本；批量删除的按钮悬停变红；移除标题栏复位按钮；工作区下拉只保留存在非空分段的工作区；AI 预设提示词在只读文本框中展示；设置侧栏换成插件线条图标；主题配色同步作用于设置页；窗口设置可把当前面板位置和尺寸存为默认；AI 优化提高短内容输出预算并在空正文时自动用内置提示词重试一次。
 
-> A per-workspace floating segmented notepad for DeepSeek Harness sessions. Cards run oldest-to-newest; Enter splits after the source card and Backspace at the start merges into the previous card, while empty cards are removed by Backspace or the delete action without a prompt. An empty title is a blank click target, arrow keys move between cards, and AI improvement only touches the selected cards — the button toggles to undo and unchanged content reuses the cached answer. Hover groups wait briefly before opening: insert/send include current-session and new-session actions, archive+delete shares one group, and replace stays single. 0.8 adds a dedicated settings tab (themes, frosted glass, fonts, save mode, AI prompt presets, button groups, card height, geometry defaults), plugin undo/redo that never overrides textarea history, foldable cards with batch archive / delete / copy, selection-aware AI rewriting that re-selects its output, newest-first archives with auto-scroll, a workspace dropdown limited to workspaces with note content, and image chips whose remove button sits on the thumbnail corner. Image chips open an in-panel preview, the footer rotates shortcut tips, copy-all skips archived content, sending follows the General Settings busy-send policy, and the textarea only scrolls at its height limit. Auto refresh preserves the list scroll position, `Ctrl/Cmd + Shift + R` (or the header reset button) resets the geometry, the panel never covers the host title bar, and notes live in `<workspace>/.dsh/notepad.json` shared by every session from that workspace.
+> A per-workspace floating segmented notepad for DeepSeek Harness sessions. Cards run oldest-to-newest; Enter splits after the source card and Backspace at the start merges into the previous card, while empty cards are removed by Backspace or the delete action without a prompt. An empty title is a blank click target, arrow keys move between cards, and AI improvement only touches the selected cards — the button toggles to undo and unchanged content reuses the cached answer. Hover groups wait briefly before opening: insert/send include current-session and new-session actions, archive+delete shares one group, and replace stays single. 0.8 adds a dedicated settings tab (themes, frosted glass, fonts, save mode, AI prompt presets, button groups, card height, geometry defaults), plugin undo/redo that never overrides textarea history, foldable cards with batch archive / delete / copy, selection-aware AI rewriting that re-selects its output, newest-first archives with auto-scroll, a workspace dropdown limited to workspaces with note content, and image chips whose remove button sits on the thumbnail corner. Image chips open an in-panel preview, the footer rotates shortcut tips, copy-all skips archived content, sending follows the General Settings busy-send policy, and the textarea only scrolls at its height limit. Auto refresh preserves the list scroll position, `Ctrl/Cmd + Shift + R` resets the geometry, the panel never covers the host title bar, and notes live in `<workspace>/.dsh/notepad.json` shared by every session from that workspace.
 
 ## 安装
 
@@ -41,6 +41,7 @@ dsh plugin --profile web add @restregular/dsh-notepad
   - 插入 / 发送组：当前会话 + 在同一工作区新会话中执行，两种新会话图标不同；
   - 归档+删除组：归档（主按钮）+ 删除（悬停后出现的危险按钮，活动分段批量选择时即批量删除）；
   - 替换按钮保持单键。
+- **可横向滚动的按钮栏**：工具栏是一行横向滚动列表，不再换行；始终预留 7px 的滚动条位置，滚动条初始较细、鼠标悬停时略微变粗，出现 / 隐藏时不会让按钮栏上下跳动。
 - **回车拆分**：在分段中按回车会从光标处拆开，新卡片**紧跟原卡片下方**；在末尾回车就是在该段后面新建一个空分段。
 - **Backspace 合并 / 删除**：光标在段首按 `Backspace` 会与上一段合并；如果当前段完全为空（无标题、无文字、无图片），则直接删除该段，不弹确认框。删除按钮对空分段同样跳过确认。
 - **撤销 / 重做**：`Ctrl/Cmd + Z` 与 `Ctrl/Cmd + Shift + Z`。输入框内的撤销仍由浏览器原生处理，插件绝不再拦一次；拆分、合并、归档、恢复、排序、批量操作、AI 优化等由插件记录，最多 50 步（可调），切换工作区或外部内容刷新时丢弃历史。工具栏另有撤销 / 重做按钮，AI 优化按钮自己的「撤销优化」继续保留。
@@ -49,7 +50,7 @@ dsh plugin --profile web add @restregular/dsh-notepad
 - **复制**：卡片头部的复制按钮复制这一段；选中若干段后工具栏出现「复制选中的 N 段」。标题栏的复制按钮仍然只复制全部未归档内容。
 - **快捷键提示**：底部一次只显示一条快捷键提示，点击它会轮换显示下一条。
 - **发送行为**：发送按钮在智能体繁忙时使用「设置 > 通用设置 > 繁忙时的发送行为」中选择的排队 / 插话策略；空闲时按普通发送处理。
-- **复位浮窗**：`Ctrl/Cmd + Shift + R` 或标题栏的复位按钮把位置和尺寸恢复为设置里的默认值（初始 `420 × 460`，右下角），最小化 / 归档展开等状态不变。
+- **复位浮窗**：`Ctrl/Cmd + Shift + R` 把位置和尺寸恢复为设置里的默认值（初始 `420 × 460`，右下角），最小化 / 归档展开等状态不变；标题栏不再放复位按钮。
 - **高度上限**：分段文本区默认最大 240px，可在设置里调整；只有内容确实超过该高度时才出现纵向滚动条。
 - **合并**：选中 2 段以上后点顶部工具栏的合并按钮，合并结果留在最靠上的选中位置。
 - **Enter**：拆分当前分段（见上）；**Shift + Enter** 是分段内换行；**Ctrl / Cmd + Enter** 把当前分段（有选中时改为选中的多段）插入对话框。
@@ -57,7 +58,7 @@ dsh plugin --profile web add @restregular/dsh-notepad
 
 ## 设置（「设置 > 记事本」）
 
-设置面板新增独立的「记事本」标签页，全部改动即时生效并只保存在本机浏览器（`localStorage`），不写入工作区文件。启用 / 禁用项使用 toggle，选项使用与其它插件一致的自定义下拉列表，并沿用宿主 `--dsw-alias-*` 主题 token，深色模式自动适配。
+设置面板新增独立的「记事本」标签页，全部改动即时生效（保存在本机浏览器 `localStorage`）。启用 / 禁用项使用 toggle，选项使用与其它插件一致的自定义下拉列表；配色主题同时作用于浮窗和设置页，并沿用宿主 `--dsw-alias-*` token，深色模式自动适配。设置侧栏中的「记事本」使用插件自己的 16px 单色线条图标，而不是宿主默认齿轮。
 
 | 设置 | 说明 |
 | --- | --- |
@@ -68,9 +69,9 @@ dsh plugin --profile web add @restregular/dsh-notepad
 | 撤销步数 | 5–200，默认 50；只影响插件记录的操作，不影响输入框原生撤销 |
 | 按钮组模式 | 开启时次级按钮 hover 展开；关闭时全部按钮平铺 |
 | 展开 hover 时间阈值 | 0–1000ms，只在按钮组模式开启时显示 |
-| AI 提示词 | 通用润色 / 精简压缩 / 专业文档 / 分点大纲 / 自定义；自定义提示词会作为 system prompt 发送，宿主仍强制只返回正文 |
+| AI 提示词 | 通用润色 / 精简压缩 / 专业文档 / 分点大纲 / 自定义；下方文本框展示当前预设的完整提示词（只读），选择「自定义」后同一位置切换为可编辑输入框 |
 | 分段卡片最大高度 | 80–800px，决定文本区何时出现滚动条 |
-| 默认位置和尺寸 | 默认宽高可改，也可以立即恢复浮窗位置和尺寸或恢复默认数值 |
+| 默认位置和尺寸 | 宽高可调；「将当前位置和尺寸设为默认」把浮窗此刻的位置与尺寸写成默认，复位快捷键随后回到这里；也可以立即恢复浮窗，或恢复出厂数值 |
 | 快捷键绑定 | 显示 / 隐藏、复位、撤销、重做、保存五项，点击输入框后直接按新组合键即可；可一键恢复默认 |
 
 ## 功能
@@ -121,7 +122,7 @@ dsh plugin --profile web add @restregular/dsh-notepad
 | 发送策略 | 卡片 / 工具栏发送按钮 | 繁忙时按「设置 > 通用设置 > 繁忙时的发送行为」选择排队或插话 |
 | 滚动条 | 分段文本达到设置里的最大高度后 | 未到上限不显示纵向滚动条，超过后才出现；默认 240px |
 | 调整尺寸 | 拖动右下角斜纹手柄 | 宽高按浏览器记忆，最小 320 × 240 |
-| 复位位置和尺寸 | `Ctrl/Cmd + Shift + R`，或标题栏复位按钮 | 恢复设置里的默认宽高（初始 420 × 460）并停到右下角，其它状态不变 |
+| 复位位置和尺寸 | `Ctrl/Cmd + Shift + R` | 恢复设置里的默认位置和尺寸（初始 420 × 460，右下角），其它状态不变 |
 | 手动保存 | 手动模式下的标题栏保存按钮，或 `Ctrl/Cmd + S` | 立即写入当前内容；自动模式下按钮不显示 |
 | 窗口折叠 / 展开 | 标题栏上下折叠箭头 | 只保留标题栏，内容继续按保存策略保存 |
 | 最小化 / 恢复 | 标题栏最小化图标，或 `Ctrl/Cmd + Shift + N` | 收成右下角小图标，带平滑过渡 |
@@ -172,15 +173,15 @@ dsh plugin --profile web add @restregular/dsh-notepad
 - 每个工作区一份笔记，最多 **200 段 / 512 KB**（单段输入框限制 16 万字符，每段最多 20 张图片）。浮窗内是纯文本编辑，不做 Markdown 渲染；图片以缩略图芯片展示（不显示文件名）。
 - 浮窗只在**会话视图**出现：打开设置等非会话页面时自动隐藏，回到会话后恢复。
 - 写入走宿主同源回环路由 `/dsh-notepad/api/note`，粘贴图片走 `/dsh-notepad/api/image`，AI 优化走 `/dsh-notepad/api/optimize`，侧边栏角标计数与顶部工作区下拉走 `/dsh-notepad/api/unsent`；这些都只接受 127.0.0.1 的同源请求，并且只允许当前会话的 cwd 或已注册工作区。图片接口只会在固定的 `.dsh/notepad/images/` 下写入 / 删除合法的图片文件，不能用来读写或删除工作区里的其它文件。AI 优化使用当前默认模型，未配置模型时返回 `unavailable`，不会影响记事本的其它功能。`/unsent` 只返回工作区 id、路径、标题、未发送数和 `hasContent` 布尔值，不暴露任何笔记正文。
-- **AI 优化缓存**：客户端按「工作区 + 标题 + 提示词 + 正文」缓存本页内的优化结果；宿主进程内也保留一份同样键的缓存（最多 64 条 / 约 200 万字符）。相同且未改动的内容再次优化时直接复用上次结果，不再调用大模型；标题、正文或提示词变化后会重新请求。自定义提示词最长 4000 字符，宿主会在末尾强制追加「只返回正文」的约束。
+- **AI 优化缓存**：客户端按「工作区 + 标题 + 提示词 + 正文」缓存本页内的优化结果；宿主进程内也保留一份同样键的缓存（最多 64 条 / 约 200 万字符）。相同且未改动的内容再次优化时直接复用上次结果，不再调用大模型；标题、正文或提示词变化后会重新请求。自定义提示词最长 4000 字符，宿主会在末尾强制追加「只返回正文」的约束。单次优化至少预留 4096 输出 token，避免推理模型把短内容的预算耗尽在思考阶段；如果自定义提示词得到空正文，宿主会用内置提示词再试一次。
 - 窗口重新获得焦点（或页面重新可见）时，如果本地没有未保存的修改，会自动读取磁盘上的最新内容；刷新前会立即记录列表的 `scrollTop`，写入新内容后恢复，读取时也保留当前卡片顺序，不会让正在看的卡片或列表位置跳动。
 
 ## 实现
 
 - **Host**（`index.js` + `lib/note-store.js` + `lib/image-store.js`）：`ctx.inject(['webServer'])` 注册 `/dsh-notepad/api` 下的 `GET/PUT /note`、`POST/DELETE /image`、`GET /unsent` 与 `POST /optimize`，用临时文件 + rename 原子写入 `.dsh/notepad.json`；`GET` 返回 `segments`（含 `title` / `createdAt` / `images`）与合并后的 `text`，`PUT` 接受 `{ segments: [...] }`，也兼容旧的 `{ text }`。`POST /image` 校验 base64、MIME 与文件签名后写入 `.dsh/notepad/images/`；`DELETE /image` 只允许删除该目录下的普通文件。`/unsent` 为已注册工作区统计未发送段数并返回 `hasContent`；`/optimize` 先用 `workspace + title + prompt + text` 查进程内缓存，命中时返回 `{ cached: true }`，否则把可选的 `system` 提示词（附加输出约束）交给 `agentDefaultModel.currentSelection()` + `llm.prepareCall()`，流式拼接文本后写入缓存并返回。
 - **Client**（`client.js`）：整个 bundle 包在 IIFE 里，通过 `shell.overlay` 注册浮窗、通过 `settings.section` 注册「记事本」设置页，读取 `uiSession.adapter.current` 得到当前会话与工作区。设置存于模块级 `readSettings()/writeSettings()/subscribeSettings()` 小仓库（`localStorage`），设置页和浮窗即时同步。分段历史用快照栈记录结构操作，最多 `undoLimit` 步；输入框或标题输入框内的 `Ctrl+Z` 直接交给浏览器原生处理，插件只在焦点不在可编辑元素时接管。折叠是纯 UI 状态；归档展示顺序按 `archivedAt` 倒序，写入文件的分段顺序不变。工具栏的按钮组统一走 `actionGroup()`，展开延迟用 `--np-group-delay` 变量，关闭按钮组模式时给组加 `data-expanded=true` 直接平铺；插入 / 发送的新会话按钮使用不同图标。卡片进入 / 退出分别用 `dsh-np-item-in` / `dsh-np-item-out`，归档或删除先标记 `data-leaving`，约 160ms 后再提交结构变化。文本区的 ref 回调按分段缓存，`growTextarea()` 在重测高度前后保存 / 恢复列表 `scrollTop`，避免自动保存触发列表跳回顶部。顶部工作区下拉使用 `/unsent` 的 `hasContent` 过滤，选择后调用 `uiWorkspace.startSession(workspaceId, { clearPreviousDraft: true })` 打开该工作区的新会话。侧边栏角标仍用 `MutationObserver` 监听 `[data-row-key^="workspace:"]` 并写 `data-np-unsent`。粘贴图片用 `FileReader` 读成 base64 交给宿主保存；选择 / 拖入图片优先通过桌面桥 `__DSH_HOST_PATHS__.pathFor(file)` 拿宿主路径。插入 / 替换通过 `inputActions.captureInsertion()/insertText()` 与 `setDraft()`；发送按繁忙策略选择 `sessions.scope(id).conversation.send()`（排队）或 `sessions.binding(id).session.prompt(..., 'steer')`（插话），steer 不可用时回退到排队。图片在插入 / 发送时以 Markdown 图片语法追加。
-- AI 优化只改分段文字，不动标题和图片；分段内有文字选中时只发送该片段，完成后把结果替换回原位置并重新选中；单段优化后该卡片按钮变为「撤销优化」，批量优化后工具栏按钮变为「撤销优化」，撤销会恢复优化前的文字。优化结果按内容 + 提示词缓存在客户端与宿主两侧；没有默认模型或模型调用失败时只提示错误，不影响笔记读写。
-- 浮窗坐标同时受视口和宿主标题栏约束：拖动、调整尺寸、窗口缩放、标题栏复位按钮和快捷键复位都走同一个 `clampUi()`，最小 `top` 取 `--dsh-frame-chrome-top`（全屏时为 0）/ `--dsh-frame-top-clearance` 再加 8px。显示 / 隐藏、复位、撤销 / 重做、保存五个快捷键优先注册到 DSH 的 `shortcuts` 服务（默认 `Ctrl/Cmd+Shift+N` / `Ctrl/Cmd+Shift+R` / `Ctrl/Cmd+Z` / `Ctrl/Cmd+Shift+Z` / `Ctrl/Cmd+S`），设置改变后会重新注册；注册失败时保留原始 keydown 监听，标题栏也有可点击的按钮。
+- AI 优化只改分段文字，不动标题和图片；分段内有文字选中时只发送该片段，完成后把结果替换回原位置并重新选中；单段优化后该卡片按钮变为「撤销优化」，批量优化后工具栏按钮变为「撤销优化」，撤销会恢复优化前的文字。优化结果按内容 + 提示词缓存在客户端与宿主两侧；短内容至少 4096 输出 token，空正文会用内置提示词重试一次，仍为空才提示错误，不影响笔记读写。
+- 浮窗坐标同时受视口和宿主标题栏约束：拖动、调整尺寸、窗口缩放和快捷键复位都走同一个 `clampUi()`，最小 `top` 取 `--dsh-frame-chrome-top`（全屏时为 0）/ `--dsh-frame-top-clearance` 再加 8px。显示 / 隐藏、复位、撤销 / 重做、保存五个快捷键优先注册到 DSH 的 `shortcuts` 服务（默认 `Ctrl/Cmd+Shift+N` / `Ctrl/Cmd+Shift+R` / `Ctrl/Cmd+Z` / `Ctrl/Cmd+Shift+Z` / `Ctrl/Cmd+S`），设置改变后会重新注册；注册失败时保留原始 keydown 监听。标题栏不再放复位按钮。
 - 发送模式与 DSH 输入框一致：读取 `sessions.list` 的 `running`，繁忙时读取 `configForms.get('ui-conversation')` 快照里的 `busyEnter`（`queue` / `steer`）；空闲时始终排队。
 - 文案通过宿主 `locale` 服务注册中英文；找不到 locale 时按浏览器语言回退。
 
@@ -205,14 +206,14 @@ node test/package.test.mjs
 npm test
 ```
 
-`test/client-smoke.mjs` 会真正执行 `apply(ctx)` 并渲染浮窗与设置页，覆盖：分段加载、编辑自动保存、手动保存模式与保存按钮、自动刷新保持列表滚动位置、设置 toggle / 自定义下拉 / 快捷键录制与恢复默认 / 主题 / 字号 / 按钮组模式 / hover 阈值显隐、插件撤销 / 重做与输入框原生撤销的边界、分段折叠与全部展开 / 折叠、单段 / 选中复制、工作区下拉（只列有内容的工作区）与切换新会话、归档最新在上 / 自动滚动 / 退出动画、新分段追加到底部、空标题空白点击区与点击后出现输入框、标题自动保存、序号选中、方向键跨分段切换光标、段首 Backspace 合并上一段、空分段 Backspace / 删除按钮无确认删除、回车拆分后新卡片紧跟原卡片、文本区未到高度上限不显示滚动条、合并、单段 / 选中分段 AI 优化与段内选中文字优化、优化后按钮切换为撤销、相同内容命中缓存、插入 / 发送 / 归档+删除 hover 按钮组（含延迟 CSS 与新会话图标区分）与在新会话中插入 / 发送、图片面板内预览、非空删除的二次确认与不可撤销、底部快捷键轮换、复制全部排除归档、繁忙发送策略、拖拽排序、未发送角标、侧边栏工作区角标、单段/多段插入与替换、单段/多段发送与自动归档、归档显示隐藏、归档恢复与删除（含撤销）、全选、窗口折叠、最小化 / 恢复、拖动调整尺寸、标题栏下方位置限制、全局快捷键与 `Ctrl+Shift+R` 复位、DSH `shortcuts` 五个命令注册、深色模式与设置 CSS、重复执行 bundle 的兼容性，以及粘贴 / 选择图片、图片芯片、删除芯片时清理磁盘文件与带图插入发送。
+`test/client-smoke.mjs` 会真正执行 `apply(ctx)` 并渲染浮窗与设置页，覆盖：分段加载、编辑自动保存、手动保存模式与保存按钮、自动刷新保持列表滚动位置、设置 toggle / 自定义下拉 / 快捷键录制与恢复默认 / 主题（同时作用于浮窗和设置页）/ 字号 / 按钮组模式 / hover 阈值显隐 / 预设提示词只读展示与自定义切换 / 将当前几何设为默认、插件撤销 / 重做与输入框原生撤销的边界（含输入文字不被撤销吞掉）、分段折叠与全部展开 / 折叠、单段 / 选中复制、工作区下拉（只列有非空分段的工作区）与切换新会话、归档最新在上 / 自动滚动 / 退出动画、横向滚动按钮栏与危险按钮 hover 配色、设置侧栏线条图标、新分段追加到底部、空标题空白点击区与点击后出现输入框、标题自动保存、序号选中、方向键跨分段切换光标、段首 Backspace 合并上一段、空分段 Backspace / 删除按钮无确认删除、回车拆分后新卡片紧跟原卡片、文本区未到高度上限不显示滚动条、合并、单段 / 选中分段 AI 优化与段内选中文字优化、优化后按钮切换为撤销、相同内容命中缓存、插入 / 发送 / 归档+删除 hover 按钮组（含延迟 CSS 与新会话图标区分）与在新会话中插入 / 发送、图片面板内预览、非空删除的二次确认与不可撤销、底部快捷键轮换、复制全部排除归档、繁忙发送策略、拖拽排序、未发送角标、侧边栏工作区角标、单段/多段插入与替换、单段/多段发送与自动归档、归档显示隐藏、归档恢复与删除（含撤销）、全选、窗口折叠、最小化 / 恢复、拖动调整尺寸、标题栏下方位置限制、全局快捷键与 `Ctrl+Shift+R` 复位（标题栏不再有复位按钮）、DSH `shortcuts` 五个命令注册、深色模式与设置 CSS、重复执行 bundle 的兼容性，以及粘贴 / 选择图片、图片芯片、删除芯片时清理磁盘文件与带图插入发送。
 
 ## 已知限制
 
 - 浮窗不会自动把内容推给 Agent；发送使用当前会话的发送接口，繁忙时按「设置 > 通用设置」的繁忙发送策略排队或插话。
 - 发送按钮依赖 DSH 的会话接口；接口不可用时降级为插入输入框并提示。
 - 「在新会话中插入 / 发送」依赖 DSH 的 `uiWorkspace` / `sessions` 服务；不可用时插入会降级为复制，发送会提示失败。
-- `Ctrl/Cmd + Shift + R` 在部分浏览器里是硬刷新快捷键；DSH 桌面端通过 `shortcuts` 先消费该组合，网页端如果仍被浏览器占用，可用标题栏的复位按钮。
+- `Ctrl/Cmd + Shift + R` 在部分浏览器里是硬刷新快捷键；DSH 桌面端通过 `shortcuts` 先消费该组合，网页端如果仍被浏览器占用，可在「设置 > 记事本」里点「立即恢复浮窗位置和尺寸」。
 - 图片只支持 PNG / JPEG / WebP / GIF，单张最大 20 MB、每段最多 20 张；其它附件类型暂不支持。
 - AI 优化需要 DSH 里已配置默认模型；未配置时按钮会提示不可用，记笔记本身不受影响。优化缓存保存在宿主进程内，重启 DSH 或切换默认模型后，相同内容会再请求一次。
 - 删除非空未归档分段不可撤销；确认后不会进入归档，只会在延迟窗口后清理未被其它分段引用的插件图片。空分段直接删除。批量删除同样不可撤销。

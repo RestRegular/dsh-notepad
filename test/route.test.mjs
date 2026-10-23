@@ -468,6 +468,51 @@ test('POST optimize rejects an oversized custom prompt', async (t) => {
   assert.equal((await response.json()).code, 'too-large');
 });
 
+test('POST optimize retries with the built-in prompt when the first answer is empty', async (t) => {
+  const root = await tempDir(t);
+  const state = { calls: 0, systems: [], configs: [] };
+  const llm = {
+    async resolveCallConfig(config) {
+      state.configs.push(config);
+      return { ...config };
+    },
+    async prepareCall(base) {
+      return {
+        async *stream(request) {
+          state.calls += 1;
+          state.systems.push(request.system);
+          if (state.calls >= 2) yield { type: 'text-delta', text: '重试后的内容' };
+          yield { type: 'finish', reason: { kind: 'stop' } };
+        },
+      };
+    },
+  };
+  const base = await serve(t, fakeContext({
+    workspaces: [{ id: 'ws', path: root }],
+    llm,
+    selection: { provider: 'deepseek', model: 'deepseek-chat' },
+  }));
+  const response = await fetch(`${base}/dsh-notepad/api/optimize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      root,
+      sessionId: 's1',
+      title: '',
+      text: '需要重试的短内容',
+      system: '一个可能让模型只输出思考过程的提示词',
+    }),
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.text, '重试后的内容');
+  assert.equal(state.calls, 2, 'an empty first answer is retried once');
+  assert.ok(state.systems[1].includes('writing assistant'),
+    'the retry falls back to the built-in instruction');
+  assert.ok(state.configs[0].maxTokens >= 4096,
+    'short notes keep a healthy output budget so reasoning does not consume all of it');
+});
+
 test('POST optimize reports a missing model as unavailable', async (t) => {
   const root = await tempDir(t);
   const base = await serve(t, fakeContext({ workspaces: [{ path: root }] }));
