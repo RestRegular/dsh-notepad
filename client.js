@@ -1365,7 +1365,7 @@ window.__ModuleLoader__.load({
 .dsh-np-btn:focus-visible,.dsh-np-segbtn:focus-visible,.dsh-np-link:focus-visible,.dsh-np-empty-add:focus-visible,.dsh-np-toast-action:focus-visible,.dsh-np-selectall input:focus-visible,.dsh-np-check input:focus-visible,.dsh-np-title-add:focus-visible,.dsh-np-preview-btn:focus-visible,.dsh-np-confirm-btn:focus-visible,button.dsh-np-hint:focus-visible,.dsh-np-restore:focus-visible,.dsh-np-img-open:focus-visible,.dsh-np-img-remove:focus-visible{outline:2px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#4176e6));outline-offset:-2px}
 .dsh-np-body{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;padding:8px 10px 0;opacity:1;transition:opacity .16s ease,visibility 0s linear 0s}
 .dsh-np-card[data-minimized=true] .dsh-np-body{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .16s ease,visibility 0s linear .16s}
-.dsh-np-tools{position:relative;display:flex;align-items:center;flex:none;height:33px;box-sizing:border-box;padding:0 2px;border-bottom:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08));overflow:hidden}
+.dsh-np-tools{position:relative;display:flex;align-items:center;flex:none;height:auto;min-height:31px;box-sizing:border-box;padding:2px;border-bottom:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08));overflow:hidden}
 .dsh-np-toolbar-actions{position:absolute;right:2px;top:50%;transform:translateY(-50%);z-index:1;display:flex;align-items:center;flex-wrap:nowrap;gap:4px;max-width:none}
 .dsh-np-toolbar-actions>*{flex:none}
 .dsh-np-selectall{position:relative;z-index:2;align-self:stretch;display:inline-flex;align-items:center;gap:6px;min-width:0;padding:0 14px 0 2px;cursor:pointer;color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11px;white-space:nowrap;background:var(--dsw-alias-bg-layer-1,#fff)}
@@ -4125,6 +4125,38 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         }
       };
 
+      /**
+       * `sessions.create` only records a placeholder summary; the live Session
+       * (and its prompt face) appears after the session is opened. Poll briefly
+       * instead of assuming binding() is immediately available — this was why
+       * "send into a new session" reported the send interface as unavailable.
+       */
+      const waitForSessionBinding = async (sessionId, timeoutMs = 3000) => {
+        const sessions = ctx.get('sessions');
+        if (sessions === undefined || sessions === null || typeof sessions.binding !== 'function') return false;
+        const deadline = Date.now() + Math.max(200, timeoutMs);
+        while (Date.now() < deadline) {
+          try {
+            const live = sessions.binding(sessionId)?.session;
+            if (live !== undefined && live !== null && typeof live.prompt === 'function') return true;
+          } catch {
+            /* Binding may throw while the main view is switching. */
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        return false;
+      };
+
+      /** Wait until the notepad has reloaded the same workspace note after a switch. */
+      const waitForNoteIds = async (ids, timeoutMs = 500) => {
+        const deadline = Date.now() + Math.max(200, timeoutMs);
+        while (Date.now() < deadline) {
+          if (segmentsRef.current.some((segment) => ids.has(segment.id))) return true;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        return false;
+      };
+
       const sendSegments = async (list) => {
         if (sendingRef.current) return;
         const value = mergedText(list);
@@ -4194,6 +4226,41 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         }
         sendingRef.current = true;
         setSending(true);
+        const targetRoot = rootRef.current;
+        const targetSession = rootSessionRef.current;
+        const snapshot = segmentsRef.current;
+        const ids = new Set(
+          list.filter((segment) => segment.archived !== true).map((segment) => segment.id),
+        );
+        let archived = false;
+        /** Undo the pre-send archive when the new session never accepts the prompt. */
+        const restoreArchived = async () => {
+          if (!archived || ids.size === 0) return;
+          await waitForNoteIds(ids);
+          const current = segmentsRef.current;
+          if (rootRef.current === targetRoot
+            && current.some((segment) => ids.has(segment.id) && segment.archived === true)) {
+            const restored = current.map((segment) =>
+              (ids.has(segment.id) && segment.archived === true
+                ? { ...segment, archived: false, archivedAt: null }
+                : segment));
+            commitSegments(restored, { record: false });
+            await saveNowRef.current?.({ force: true });
+            reloadRef.current?.();
+            return;
+          }
+          // The reload did not expose the cards; write the pre-send snapshot
+          // back to the old note so nothing is lost.
+          if (targetRoot === '' || targetSession === '') return;
+          const restored = snapshot.map((segment) =>
+            (ids.has(segment.id) ? { ...segment, archived: false, archivedAt: null } : segment));
+          try {
+            await saveNote(targetRoot, targetSession, serializeSegments(restored));
+            reloadRef.current?.();
+          } catch {
+            /* Keep the caller's fallback toast. */
+          }
+        };
         try {
           const newSessionId = await createWorkspaceSession(cwd);
           if (newSessionId === null) {
@@ -4201,29 +4268,49 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             showToast(t('sendNewUnavailable'));
             return;
           }
-          const accepted = await sendToSession(value, newSessionId);
-          if (accepted !== true) {
-            if (!insertValue(value)) await copyText(value);
-            showToast(t('sendUnavailable'));
-            return;
-          }
-          showToast(t('sendNewDone'));
-          const ids = new Set(
-            list.filter((segment) => segment.archived !== true).map((segment) => segment.id),
-          );
-          if (ids.size > 0 && (rootRef.current === '' || rootRef.current === cwd)) {
+          // Archive first, while the old binding still owns the note: switching
+          // to the new session reloads the same workspace file and could wipe
+          // archive changes committed during a race with that load.
+          if (ids.size > 0) {
             const archivedAt = new Date().toISOString();
             const next = segmentsRef.current.map((segment) =>
               (ids.has(segment.id) ? { ...segment, archived: true, archivedAt } : segment));
             setSelection(new Set([...selectedRef.current].filter((id) => !ids.has(id))));
             commitSegments(next);
             await saveNowRef.current?.({ force: true });
+            archived = true;
           }
+          // Open the blank session: create() only records a placeholder and
+          // does not attach a live Session, so its prompt face is unavailable
+          // until the main view activates it.
           const uiWorkspace = ctx.get('uiWorkspace');
           if (uiWorkspace !== undefined && uiWorkspace !== null && typeof uiWorkspace.openSession === 'function') {
             uiWorkspace.openSession(newSessionId);
           }
+          let accepted = false;
+          if (await waitForSessionBinding(newSessionId)) {
+            try {
+              accepted = await promptSession(newSessionId, value, 'queue');
+            } catch {
+              accepted = false;
+            }
+            if (!accepted) {
+              try {
+                accepted = await sendToSession(value, newSessionId);
+              } catch {
+                accepted = false;
+              }
+            }
+          }
+          if (accepted !== true) {
+            await restoreArchived();
+            if (!insertValue(value)) await copyText(value);
+            showToast(t('sendUnavailable'));
+            return;
+          }
+          showToast(t('sendNewDone'));
         } catch (reason) {
+          await restoreArchived();
           showToast(`${t('sendFailed')}: ${String(reason?.message ?? reason)}`);
         } finally {
           sendingRef.current = false;
@@ -4612,6 +4699,30 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           {
             type: 'button',
             className: 'dsh-np-btn',
+            title: `${t('undo')} · ${settings.shortcuts.undo}`,
+            'aria-label': t('undo'),
+            disabled: !canUndo,
+            onClick: () => applyHistory('undo'),
+          },
+          h(UndoIcon, { size: 15 }),
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-np-btn',
+            title: `${t('redo')} · ${settings.shortcuts.redo}`,
+            'aria-label': t('redo'),
+            disabled: !canRedo,
+            onClick: () => applyHistory('redo'),
+          },
+          h(RedoIcon, { size: 15 }),
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-np-btn',
             title: t('copy'),
             'aria-label': t('copy'),
             disabled: activeHasContent !== true,
@@ -4796,30 +4907,6 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               icon: h(ChevronsCollapseIcon, { size: 14 }),
             },
           }),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-np-btn',
-              title: `${t('undo')} · ${settings.shortcuts.undo}`,
-              'aria-label': t('undo'),
-              disabled: !canUndo,
-              onClick: () => applyHistory('undo'),
-            },
-            h(UndoIcon, { size: 14 }),
-          ),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'dsh-np-btn',
-              title: `${t('redo')} · ${settings.shortcuts.redo}`,
-              'aria-label': t('redo'),
-              disabled: !canRedo,
-              onClick: () => applyHistory('redo'),
-            },
-            h(RedoIcon, { size: 14 }),
-          ),
           selectedCount > 0
             ? h(
                 'button',

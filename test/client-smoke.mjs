@@ -473,10 +473,12 @@ const sessionFace = {
 };
 let createdSessions = 0;
 const createdSessionRequests = [];
+/** A created session only gets a live prompt face after openSession(). */
+const liveSessions = new Set([SESSION]);
 const sessionsService = {
   list: listSource,
-  scope: () => scopedContext,
-  binding: () => ({ session: sessionFace }),
+  scope: (sessionId) => (liveSessions.has(sessionId) ? scopedContext : { get: () => undefined }),
+  binding: (sessionId) => (liveSessions.has(sessionId) ? { session: sessionFace } : undefined),
   async create(options) {
     createdSessions += 1;
     createdSessionRequests.push(options);
@@ -492,6 +494,7 @@ const uiWorkspace = {
   },
   openSession(sessionId) {
     this.openSessionCalls.push(sessionId);
+    liveSessions.add(sessionId);
   },
   workspaces: {
     list: {
@@ -590,8 +593,8 @@ assert.ok(styleTags[0].textContent.includes('.dsh-np-toggle'), 'settings use tog
 assert.ok(styleTags[0].textContent.includes('.dsh-np-drop'), 'settings use a custom dropdown');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-img-remove{position:absolute;top:-6px;right:-6px'),
   'the image remove button sits on the thumbnail corner');
-assert.ok(styleTags[0].textContent.includes('.dsh-np-tools{position:relative;display:flex;align-items:center;flex:none;height:33px'),
-  'the button bar is a single non-wrapping row again');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-tools{position:relative;display:flex;align-items:center;flex:none;height:auto;min-height:31px'),
+  'the button bar hugs its one-row content again');
 assert.ok(!styleTags[0].textContent.includes('.dsh-np-tools::-webkit-scrollbar'),
   'the button bar no longer has a scrollbar');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-toolbar-actions{position:absolute;right:2px'),
@@ -711,6 +714,18 @@ let blurredGroupButton = 0;
 groupPrimary.props.onPointerUp({ currentTarget: { blur() { blurredGroupButton += 1; } } });
 assert.equal(blurredGroupButton, 1,
   'pointer activation blurs the action button so the group can collapse after the mouse leaves');
+const headerChildren = findByClass(initial.seen, 'dsh-np-head').element.props.children;
+const headerButtons = (Array.isArray(headerChildren) ? headerChildren : [headerChildren])
+  .filter((child) => child?.type === 'button');
+const undoIndex = headerButtons.findIndex((child) => String(child.props.title ?? '').startsWith('撤销 ·'));
+const redoIndex = headerButtons.findIndex((child) => String(child.props.title ?? '').startsWith('重做 ·'));
+const copyIndex = headerButtons.findIndex((child) => child.props.title === '复制全部');
+assert.ok(undoIndex >= 0 && redoIndex > undoIndex && copyIndex > redoIndex,
+  'undo and redo sit in the header immediately left of copy-all');
+const initialToolbarChildren = findByClass(initial.seen, 'dsh-np-toolbar-actions').element.props.children;
+assert.ok((Array.isArray(initialToolbarChildren) ? initialToolbarChildren : [initialToolbarChildren])
+  .every((child) => !String(child?.props?.title ?? '').startsWith('撤销 ·')),
+'the action bar no longer carries undo');
 
 // Auto refresh keeps the list scroll position -----------------------------
 const listRefProp = findByClass(initial.seen, 'dsh-np-list')?.element.props.ref;
