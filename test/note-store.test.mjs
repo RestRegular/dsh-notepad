@@ -30,6 +30,7 @@ test('a missing note is an empty note', async (t) => {
   const root = await workspace(t);
   const note = await readNote(root);
   assert.deepEqual(note, {
+    version: null,
     segments: [],
     text: '',
     updatedAt: null,
@@ -90,10 +91,26 @@ test('a version 1 envelope is migrated to one segment on read', async (t) => {
   await mkdir(path.join(root, NOTE_DIR), { recursive: true });
   await writeFile(notePath(root), JSON.stringify({ version: 1, text: '旧内容', updatedAt: '2026-01-01T00:00:00.000Z' }), 'utf8');
   const note = await readNote(root);
+  assert.equal(note.version, 1);
   assert.equal(note.segments.length, 1);
   assert.equal(note.segments[0].text, '旧内容');
   assert.equal(note.text, '旧内容');
   assert.equal(note.updatedAt, '2026-01-01T00:00:00.000Z');
+});
+
+test('a version 4 envelope reports its version so the client can migrate card order', async (t) => {
+  const root = await workspace(t);
+  await mkdir(path.join(root, NOTE_DIR), { recursive: true });
+  await writeFile(notePath(root), JSON.stringify({
+    version: 4,
+    segments: [
+      { id: 'new', text: '最新', createdAt: '2026-01-02T00:00:00.000Z' },
+      { id: 'old', text: '较早', createdAt: '2026-01-01T00:00:00.000Z' },
+    ],
+  }), 'utf8');
+  const note = await readNote(root);
+  assert.equal(note.version, 4);
+  assert.deepEqual(note.segments.map((segment) => segment.id), ['new', 'old']);
 });
 
 test('a hand-edited plain-text file is preserved as one segment', async (t) => {

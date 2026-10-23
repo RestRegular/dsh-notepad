@@ -50,6 +50,7 @@ window.__ModuleLoader__.load({
     const SAVE_DELAY = 500;
     const MAX_SEGMENTS = 200;
     const MAX_SEGMENT_CHARS = 160000;
+    const MAX_SEGMENT_HEIGHT = 240;
     const MAX_TITLE_CHARS = 200;
     const MAX_IMAGES = 20;
     const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -179,7 +180,7 @@ window.__ModuleLoader__.load({
         hintNewline: 'Shift+Enter 分段内换行',
         hintInsert: 'Ctrl+Enter 插入当前分段',
         hintToggle: 'Ctrl+Shift+N 显示 / 隐藏浮窗',
-        hintReset: 'Ctrl+Shift+0 复位浮窗',
+        hintReset: 'Ctrl+Shift+R 复位浮窗',
         hintArrow: '↑ / ↓ 切换分段',
         hintPaste: '粘贴图片自动保存到工作区',
         resetShortcut: '复位记事本位置和尺寸',
@@ -312,7 +313,7 @@ window.__ModuleLoader__.load({
         hintNewline: 'Shift+Enter adds a line break',
         hintInsert: 'Ctrl+Enter inserts the current segment',
         hintToggle: 'Ctrl+Shift+N shows / hides the notepad',
-        hintReset: 'Ctrl+Shift+0 resets the floating window',
+        hintReset: 'Ctrl+Shift+R resets the floating window',
         hintArrow: '↑ / ↓ switch segments',
         hintPaste: 'Pasted images are saved in the workspace',
         resetShortcut: 'Reset the notepad position and size',
@@ -784,12 +785,14 @@ window.__ModuleLoader__.load({
 .dsh-np-segbtn[data-ai=true]{color:var(--np-accent);opacity:1}
 .dsh-np-segbtn[data-danger=true]:hover:not(:disabled){color:var(--dsw-alias-state-error-primary,#e25555);background:var(--dsw-alias-interactive-bg-hover-danger,rgb(236 19 19/.05))}
 .dsh-np-segbtn:disabled{opacity:.3;cursor:default}
-.dsh-np-actiongroup{display:inline-flex;align-items:center;flex:none;padding:1px;border:1px solid transparent;border-radius:8px;transition:border-color .12s,background .12s}
-.dsh-np-actiongroup:hover,.dsh-np-actiongroup:focus-within{border-color:var(--dsw-alias-border-l2,rgb(15 23 42/.14));background:color-mix(in srgb,var(--np-surface-2) 58%,transparent)}
-.dsh-np-group-extra{width:0!important;min-width:0;padding:0;border:0;opacity:0;visibility:hidden;pointer-events:none;overflow:hidden;transition:width .14s ease,opacity .12s ease,visibility 0s linear .14s}
-.dsh-np-actiongroup:hover .dsh-np-group-extra,.dsh-np-actiongroup:focus-within .dsh-np-group-extra{width:24px!important;opacity:1;visibility:visible;pointer-events:auto;transition:width .14s ease,opacity .12s ease,visibility 0s linear 0s}
+.dsh-np-actiongroup{display:inline-flex;align-items:center;flex:none;padding:1px;border:1px solid transparent;border-radius:8px;transition:border-color .12s ease .12s,background .12s ease .12s}
+.dsh-np-actiongroup:hover{border-color:var(--dsw-alias-border-l2,rgb(15 23 42/.14));background:color-mix(in srgb,var(--np-surface-2) 58%,transparent);transition-delay:.18s}
+.dsh-np-actiongroup:focus-within{border-color:var(--dsw-alias-border-l2,rgb(15 23 42/.14));background:color-mix(in srgb,var(--np-surface-2) 58%,transparent);transition-delay:0s}
+.dsh-np-group-extra{width:0!important;min-width:0;padding:0;border:0;opacity:0;visibility:hidden;pointer-events:none;overflow:hidden;transition:width .14s ease .12s,opacity .12s ease .12s,visibility 0s linear .26s}
+.dsh-np-actiongroup:hover .dsh-np-group-extra{width:24px!important;opacity:1;visibility:visible;pointer-events:auto;transition:width .14s ease .2s,opacity .12s ease .2s,visibility 0s linear .2s}
+.dsh-np-actiongroup:focus-within .dsh-np-group-extra{width:24px!important;opacity:1;visibility:visible;pointer-events:auto;transition-delay:0s}
 .dsh-np-actiongroup[data-size=bar]:hover .dsh-np-group-extra,.dsh-np-actiongroup[data-size=bar]:focus-within .dsh-np-group-extra{width:27px!important}
-.dsh-np-seg-text{display:block;width:100%;box-sizing:border-box;padding:2px 10px 8px;border:0;outline:0;resize:none;background:transparent;color:inherit;font-family:${FONT_STACK};font-size:13px;line-height:1.6;min-height:26px;max-height:240px;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2}
+.dsh-np-seg-text{display:block;width:100%;box-sizing:border-box;padding:2px 10px 8px;border:0;outline:0;resize:none;background:transparent;color:inherit;font-family:${FONT_STACK};font-size:13px;line-height:1.6;min-height:26px;max-height:240px;overflow-y:hidden;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2}
 .dsh-np-seg-text::placeholder{color:var(--dsw-alias-label-caption,#9aa3b2)}
 .dsh-np-seg-text:disabled{opacity:.6}
 .dsh-np-file{display:none}
@@ -1039,17 +1042,43 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       return count;
     }
 
-    /** Whether a whole server payload predates per-segment creation times. */
-    function isLegacyPayload(data) {
-      const segments = Array.isArray(data?.segments) ? data.segments : [];
-      return segments.length > 0 && segments.every((segment) =>
-        segment !== null && typeof segment === 'object'
-        && (typeof segment.createdAt !== 'string' || segment.createdAt === ''));
+    /** A segment with no title, text, or images can be deleted without a prompt. */
+    function isEmptySegment(segment) {
+      if (segment === null || segment === undefined) return false;
+      const title = typeof segment.title === 'string' ? segment.title.trim() : '';
+      const text = typeof segment.text === 'string' ? segment.text.trim() : '';
+      const images = Array.isArray(segment.images) ? segment.images : [];
+      return title === '' && text === '' && images.length === 0;
+    }
+
+    /** Merge image references in order, dropping duplicates and respecting the cap. */
+    function collectImages(segments) {
+      const seen = new Set();
+      const images = [];
+      for (const segment of segments) {
+        for (const image of Array.isArray(segment?.images) ? segment.images : []) {
+          if (seen.has(image.path) || images.length >= MAX_IMAGES) continue;
+          seen.add(image.path);
+          images.push(image);
+        }
+      }
+      return images;
+    }
+
+    /**
+     * Decode a GET /note payload. Version 4 (0.4–0.6) stored newest-first;
+     * version 5 stores oldest-first, so a v4 list is reversed once for display.
+     */
+    function readServerSegments(data) {
+      let value = normalizeServerSegments(data);
+      if (data?.version === 4) value = value.slice().reverse();
+      return value;
     }
 
     /**
      * Adopt server content without moving cards the user is looking at.
-     * Known ids keep the local order; cards created elsewhere land on top.
+     * Known ids keep the local order; cards created elsewhere land at the
+     * bottom, matching the oldest-to-newest display direction.
      */
     function mergeServerOrder(current, incoming) {
       const byId = new Map();
@@ -1061,7 +1090,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       }
       const known = new Set(kept.map((segment) => segment.id));
       const added = incoming.filter((segment) => !known.has(segment.id));
-      return [...added, ...kept];
+      return [...kept, ...added];
     }
 
     function isAbsolutePath(value) {
@@ -1188,7 +1217,11 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         element.style.height = 'auto';
         const height = Number(element.scrollHeight);
         if (Number.isFinite(height) && height > 0) {
-          element.style.height = `${Math.min(240, Math.max(26, height))}px`;
+          const capped = height > MAX_SEGMENT_HEIGHT;
+          element.style.height = `${Math.min(MAX_SEGMENT_HEIGHT, Math.max(26, height))}px`;
+          // Keep the native scrollbar hidden until the card really reaches
+          // its limit; otherwise CSS overflow:auto can reserve a gutter early.
+          element.style.overflowY = capped ? 'auto' : 'hidden';
         }
       } catch {
         /* A non-layout shim (tests) may not expose scrollHeight. */
@@ -1715,10 +1748,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           fetchNote(root, binding.id)
             .then((data) => {
               if (cancelled || rootRef.current !== root || mySeq !== loadSeqRef.current) return;
-              let value = normalizeServerSegments(data);
-              // Notes written before 0.4 appended new cards at the bottom;
-              // reverse that legacy order once so the newest card leads.
-              if (isLegacyPayload(data)) value = value.slice().reverse();
+              let value = readServerSegments(data);
               if (value.length === 0) value = [newSegment('')];
               segmentsRef.current = value;
               setSegments(value);
@@ -1886,8 +1916,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             return;
           }
           if (!resetShortcutHandledByHost
-            && (event.key === '0' || event.key === ')' || event.code === 'Digit0'
-              || event.code === 'Numpad0' || event.keyCode === 48)) {
+            && (event.key === 'R' || event.key === 'r' || event.code === 'KeyR')) {
             event.preventDefault();
             resetGeometry();
           }
@@ -1965,8 +1994,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                 pendingScrollRef.current = null;
                 return;
               }
-              let incoming = normalizeServerSegments(data);
-              if (isLegacyPayload(data)) incoming = incoming.slice().reverse();
+              let incoming = readServerSegments(data);
               if (incoming.length === 0) incoming = [newSegment('')];
               const value = mergeServerOrder(segmentsRef.current, incoming);
               segmentsRef.current = value;
@@ -2221,7 +2249,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           return;
         }
         const segment = newSegment('');
-        commitSegments([segment, ...segmentsRef.current], { focus: { id: segment.id, caret: 0 } });
+        commitSegments([...segmentsRef.current, segment], { focus: { id: segment.id, caret: 0 } });
       };
 
       const splitSegment = (id, element) => {
@@ -2233,19 +2261,13 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const nextSegment = newSegment(tail);
         const updated = segmentsRef.current.map((segment) =>
           (segment.id === id ? { ...segment, text: head } : segment));
-        // Enter at the end creates a fresh card, which belongs at the top.
-        // Splitting in the middle keeps the tail next to its source card so
-        // the caret does not jump away from what the user is editing.
-        const next = tail.trim() === ''
-          ? [nextSegment, ...updated]
-          : (() => {
-              const out = [];
-              for (const segment of updated) {
-                out.push(segment);
-                if (segment.id === id) out.push(nextSegment);
-              }
-              return out;
-            })();
+        // Cards are displayed oldest-first, so the split tail always follows
+        // its source card (also for an empty tail at the end of the note).
+        const next = [];
+        for (const segment of updated) {
+          next.push(segment);
+          if (segment.id === id) next.push(nextSegment);
+        }
         commitSegments(next, { focus: { id: nextSegment.id, caret: 0 } });
       };
 
@@ -2363,15 +2385,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         for (let index = 0; index < firstIndex; index += 1) {
           if (!ids.has(segmentsRef.current[index].id)) insertAt += 1;
         }
-        const seenPaths = new Set();
-        const images = [];
-        for (const segment of chosen) {
-          for (const image of Array.isArray(segment.images) ? segment.images : []) {
-            if (seenPaths.has(image.path) || images.length >= MAX_IMAGES) continue;
-            seenPaths.add(image.path);
-            images.push(image);
-          }
-        }
+        const images = collectImages(chosen);
         const merged = {
           id: newSegmentId(),
           text: chosen.map((segment) => segment.text).filter((text) => text.trim() !== '').join('\n\n'),
@@ -2977,6 +2991,43 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         return true;
       };
 
+      /** Remove a content-empty segment and keep a nearby typing surface. */
+      const deleteEmptySegment = (id, previous, next) => {
+        const remaining = segmentsRef.current.filter((segment) => segment.id !== id);
+        const activeRemaining = remaining.filter((segment) => segment.archived !== true);
+        if (activeRemaining.length === 0) {
+          const fresh = newSegment('');
+          commitSegments([fresh], { focus: { id: fresh.id, caret: 0 } });
+          return;
+        }
+        const focus = previous ?? next;
+        if (focus === undefined) {
+          commitSegments(remaining);
+          return;
+        }
+        const caret = previous !== undefined ? previous.text.length : 0;
+        commitSegments(remaining, { focus: { id: focus.id, caret } });
+      };
+
+      /** Backspace at position 0 joins this segment onto the previous card. */
+      const mergeWithPrevious = (previous, current) => {
+        const title = [previous.title, current.title]
+          .map((value) => (typeof value === 'string' ? value.trim() : ''))
+          .filter((value) => value !== '')
+          .join(' · ')
+          .slice(0, MAX_TITLE_CHARS);
+        const merged = {
+          ...previous,
+          text: `${previous.text}${current.text}`,
+          title,
+          images: collectImages([previous, current]),
+        };
+        const next = segmentsRef.current
+          .filter((segment) => segment.id !== current.id)
+          .map((segment) => (segment.id === previous.id ? merged : segment));
+        commitSegments(next, { focus: { id: previous.id, caret: previous.text.length } });
+      };
+
       const onSegmentKeyDown = (event, id) => {
         if (event.isComposing === true || event.nativeEvent?.isComposing === true) return;
         const chord = event.ctrlKey || event.metaKey;
@@ -3011,6 +3062,27 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           if (neighbor !== undefined && focusSegmentAt(neighbor.id, up ? neighbor.text.length : 0)) {
             event.preventDefault?.();
           }
+          return;
+        }
+        if (event.key === 'Backspace') {
+          if (event.altKey || event.shiftKey || chord) return;
+          const element = event.currentTarget ?? event.target;
+          const start = typeof element?.selectionStart === 'number' ? element.selectionStart : null;
+          const end = typeof element?.selectionEnd === 'number' ? element.selectionEnd : start;
+          if (start !== 0 || end !== 0) return;
+          const active = segmentsRef.current.filter((segment) => segment.archived !== true);
+          const position = active.findIndex((segment) => segment.id === id);
+          const current = position < 0 ? undefined : active[position];
+          if (current === undefined) return;
+          const previous = position > 0 ? active[position - 1] : undefined;
+          if (isEmptySegment(current)) {
+            event.preventDefault?.();
+            deleteEmptySegment(current.id, previous, active[position + 1]);
+            return;
+          }
+          if (previous === undefined) return;
+          event.preventDefault?.();
+          mergeWithPrevious(previous, current);
           return;
         }
         if (event.key !== 'Enter' || event.shiftKey || event.altKey || chord) return;
@@ -3131,7 +3203,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           {
             type: 'button',
             className: 'dsh-np-btn',
-            title: `${t('resetShortcut')} · Ctrl+Shift+0`,
+            title: `${t('resetShortcut')} · Ctrl+Shift+R`,
             'aria-label': t('resetShortcut'),
             onClick: resetGeometry,
           },
@@ -3209,22 +3281,20 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           onClick: primary.onClick,
         };
         if (primary.accent === true) primaryProps['data-accent'] = 'true';
+        const extraProps = {
+          type: 'button',
+          className: `${base} dsh-np-group-extra`,
+          title: extra.title,
+          'aria-label': extra.title,
+          disabled,
+          onClick: extra.onClick,
+        };
+        if (extra.danger === true) extraProps['data-danger'] = 'true';
         return h(
           'div',
           { className: 'dsh-np-actiongroup', 'data-size': size },
           h('button', primaryProps, primary.icon),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: `${base} dsh-np-group-extra`,
-              title: extra.title,
-              'aria-label': extra.title,
-              disabled,
-              onClick: extra.onClick,
-            },
-            h(NewSessionIcon, { size: 14 }),
-          ),
+          h('button', extraProps, extra.icon ?? h(NewSessionIcon, { size: 14 })),
         );
       };
 
@@ -3585,29 +3655,23 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                 ? h('span', { className: 'dsh-np-mini-spinner' })
                 : canUndoOptimize ? h(UndoIcon, { size: 14 }) : h(SparkleIcon, { size: 14 }),
             ),
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'dsh-np-segbtn',
+            actionGroup({
+              size: 'card',
+              primary: {
                 title: t('archiveSegment'),
-                'aria-label': t('archiveSegment'),
                 onClick: () => archiveSegment(segment.id),
+                icon: h(ArchiveIcon, { size: 14 }),
               },
-              h(ArchiveIcon, { size: 14 }),
-            ),
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'dsh-np-segbtn',
-                'data-danger': 'true',
+              extra: {
                 title: t('deleteActiveSegment'),
-                'aria-label': t('deleteActiveSegment'),
-                onClick: () => setDeleteConfirm(segment.id),
+                danger: true,
+                onClick: () => {
+                  if (isEmptySegment(segment)) deleteActiveSegment(segment.id);
+                  else setDeleteConfirm(segment.id);
+                },
+                icon: h(TrashIcon, { size: 14 }),
               },
-              h(TrashIcon, { size: 14 }),
-            ),
+            }),
           ),
           h(
             'div',
@@ -3632,7 +3696,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               className: 'dsh-np-seg-text',
               rows: 1,
               value: segment.text,
-              placeholder: index === 0 ? t('placeholder') : t('segmentPlaceholder'),
+              placeholder: index === activeSegments.length - 1 ? t('placeholder') : t('segmentPlaceholder'),
               spellCheck: false,
               maxLength: MAX_SEGMENT_CHARS,
               'aria-label': t('editor'),
@@ -4055,12 +4119,12 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             label: () => translate('resetShortcut'),
             aliases: ['reset notepad', 'reset notepad geometry'],
             defaults: {
-              'desktop:macos': { code: 'Digit0', modifiers: ['primary', 'shift'] },
-              'desktop:windows': { code: 'Digit0', modifiers: ['primary', 'shift'] },
-              'desktop:linux': { code: 'Digit0', modifiers: ['primary', 'shift'] },
-              'web:macos': { code: 'Digit0', modifiers: ['primary', 'shift'] },
-              'web:windows': { code: 'Digit0', modifiers: ['primary', 'shift'] },
-              'web:linux': { code: 'Digit0', modifiers: ['primary', 'shift'] },
+              'desktop:macos': { code: 'KeyR', modifiers: ['primary', 'shift'] },
+              'desktop:windows': { code: 'KeyR', modifiers: ['primary', 'shift'] },
+              'desktop:linux': { code: 'KeyR', modifiers: ['primary', 'shift'] },
+              'web:macos': { code: 'KeyR', modifiers: ['primary', 'shift'] },
+              'web:windows': { code: 'KeyR', modifiers: ['primary', 'shift'] },
+              'web:linux': { code: 'KeyR', modifiers: ['primary', 'shift'] },
             },
             regions: ['page', 'editable'],
             modals: [],
