@@ -416,14 +416,33 @@ globalThis.fetch = async (input, init = {}) => {
   });
 };
 
+const draftState = { draft: '', draftRev: 7 };
+const draftListeners = new Set();
+/** Mirror the DSH input store the plugin reads with `hooks.input`. */
+const inputStore = {
+  getSnapshot: () => ({ draft: draftState.draft, draftRev: draftState.draftRev, phase: 'plain' }),
+  subscribe(listener) {
+    draftListeners.add(listener);
+    return () => { draftListeners.delete(listener); };
+  },
+};
+function writeDraft(text) {
+  draftState.draft = text;
+  draftState.draftRev += 1;
+  for (const listener of [...draftListeners]) listener();
+}
+
 const inputActions = {
-  captureInsertion: () => ({ from: 4, to: 4, draftRev: 7 }),
+  captureInsertion: () => ({ from: draftState.draft.length, to: draftState.draft.length, draftRev: draftState.draftRev }),
   insertText(text, span) {
     inserted.push({ text, span });
+    const at = Number.isFinite(span?.from) ? span.from : draftState.draft.length;
+    writeDraft(`${draftState.draft.slice(0, at)}${text}${draftState.draft.slice(at)}`);
     return true;
   },
   setDraft(text) {
     replacedDrafts.push(text);
+    writeDraft(text);
   },
   persistDraft() {
     persistedDrafts += 1;
@@ -433,7 +452,7 @@ const inputActions = {
 const sessionState = {
   key: SESSION,
   props: { sessionId: SESSION, inputActions },
-  hooks: {},
+  hooks: { input: inputStore },
   keyedHooks: {},
 };
 const currentSource = {
@@ -802,7 +821,7 @@ assert.ok(insertButton, 'single insert button exists');
 assert.equal(insertButton.element.props.disabled, false);
 await insertButton.element.props.onClick();
 assert.equal(inserted.at(-1).text, '第一');
-assert.deepEqual(inserted.at(-1).span, { from: 4, to: 4, draftRev: 7 });
+assert.deepEqual(inserted.at(-1).span, { from: 0, to: 0, draftRev: 7 });
 const afterInsert = await renderRounds(1);
 assert.ok(afterInsert.text.includes('已插入输入框'), 'insert toast shown');
 
@@ -1838,6 +1857,32 @@ await renderRounds(1);
 assert.equal(textareas((await renderRounds(1)).seen).length, countBeforeNative,
   'a textarea undo is left to the browser');
 
+// Composer insert / replace are plugin history steps ----------------------
+writeDraft('');
+let composerView = await renderRounds(1);
+const composerInsert = findByTitle(composerView.seen, '插入此段');
+assert.ok(composerInsert, 'a card exposes the composer insert');
+await composerInsert.element.props.onClick();
+const insertedDraftText = inserted.at(-1).text;
+assert.equal(draftState.draft, insertedDraftText, 'inserting a segment fills the composer');
+pressUndoRedo(false);
+assert.equal(draftState.draft, '', 'plugin undo removes the composer insert');
+pressUndoRedo(true);
+assert.equal(draftState.draft, insertedDraftText, 'plugin redo restores the composer insert');
+
+writeDraft('替换前的输入框内容');
+composerView = await renderRounds(1);
+const composerReplace = findByTitle(composerView.seen, '替换此段');
+assert.ok(composerReplace, 'a card exposes the composer replace');
+await composerReplace.element.props.onClick();
+const replacedDraftText = replacedDrafts.at(-1);
+assert.notEqual(replacedDraftText, '替换前的输入框内容', 'replace overwrites the composer');
+pressUndoRedo(false);
+assert.equal(draftState.draft, '替换前的输入框内容',
+  'plugin undo restores the draft the replace overwrote');
+pressUndoRedo(true);
+assert.equal(draftState.draft, replacedDraftText, 'plugin redo re-applies the composer replace');
+
 // Collapse and expand.
 let collapseView = await renderRounds(2);
 const foldButtons = collapseView.seen.filter(({ element }) => element.type === 'button'
@@ -2065,6 +2110,55 @@ if (settingsView.seen.find(({ element }) => element.type === 'button'
   if (balanced) balanced.element.props.onClick();
 }
 await renderRounds(1);
+
+// Sends are irreversible: never a history step, never unarchived ----------
+let sendView = await renderRounds(2);
+await pressButton(sendView.seen, '新建分段');
+sendView = await renderRounds(2);
+const sendArea = textareas(sendView.seen).at(-1);
+const sendText = '发送后不可撤销的分段';
+sendArea.element.props.onChange({ target: { value: sendText } });
+await new Promise((resolve) => setTimeout(resolve, 800));
+sendView = await renderRounds(2);
+writeDraft('');
+const sentBeforeHistory = sent.length;
+const sendCandidates = findAllByTitle(sendView.seen, '发送此段');
+assert.ok(sendCandidates.length > 0, 'the filled card exposes its send button');
+await sendCandidates.at(-1).element.props.onClick();
+await settleLeave();
+let afterSendView = await renderRounds(2);
+assert.equal(sent.length, sentBeforeHistory + 1, 'the segment is sent once');
+const sentHistoryCard = archivedCards(afterSendView.seen)
+  .find(({ element }) => elementText(element).includes(sendText));
+assert.ok(sentHistoryCard, 'the sent segment is archived');
+assert.equal(sentHistoryCard.element.props['data-collapsed'], 'false', 'a send-archived card starts expanded');
+
+for (let index = 0; index < 6; index += 1) pressUndoRedo(false);
+afterSendView = await renderRounds(2);
+assert.equal(sent.length, sentBeforeHistory + 1, 'undo never resends a segment');
+const sentAfterUndo = archivedCards(afterSendView.seen)
+  .find(({ element }) => elementText(element).includes(sendText));
+assert.ok(sentAfterUndo, 'undo never unarchives a sent segment');
+assert.equal(sentAfterUndo.element.props['data-archived'], 'true',
+  'the sent card is pinned to the archive across undo');
+
+for (let index = 0; index < 6; index += 1) pressUndoRedo(true);
+afterSendView = await renderRounds(2);
+assert.equal(sent.length, sentBeforeHistory + 1, 'redo never resends a segment');
+assert.ok(archivedCards(afterSendView.seen)
+  .some(({ element }) => elementText(element).includes(sendText)),
+'redo never unarchives a sent segment');
+
+// A stale composer step must not wipe text typed after the insert.
+await renderRounds(1);
+writeDraft('');
+const staleComposerView = await renderRounds(1);
+await findByTitle(staleComposerView.seen, '插入此段').element.props.onClick();
+const staleDraftText = draftState.draft;
+writeDraft(`${staleDraftText}手动补充`);
+pressUndoRedo(false);
+assert.equal(draftState.draft, `${staleDraftText}手动补充`,
+  'a composer step that no longer matches the draft is retired instead of wiping typed text');
 
 // UI persistence ---------------------------------------------------------
 const storedUi = JSON.parse(storage.get('dsh-notepad.ui.v1'));

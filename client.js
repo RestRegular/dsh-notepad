@@ -517,7 +517,7 @@ window.__ModuleLoader__.load({
         hintReset: 'Ctrl+Shift+R 复位浮窗',
         hintArrow: '↑ / ↓ 切换分段',
         hintPaste: '粘贴图片自动保存到工作区',
-        hintUndo: 'Ctrl+Z 撤销操作（输入框内为原生撤销）',
+        hintUndo: 'Ctrl+Z 撤销操作（含插入 / 替换输入框；发送不可撤销）',
         hintCopy: '复制按钮可复制单段或选中分段',
         resetShortcut: '复位记事本位置和尺寸',
         workspace: '工作区',
@@ -742,7 +742,7 @@ window.__ModuleLoader__.load({
         hintReset: 'Ctrl+Shift+R resets the floating window',
         hintArrow: '↑ / ↓ switch segments',
         hintPaste: 'Pasted images are saved in the workspace',
-        hintUndo: 'Ctrl+Z undoes plugin actions (textareas keep native undo)',
+        hintUndo: 'Ctrl+Z undoes plugin actions, including composer inserts / replaces; sends cannot be undone',
         hintCopy: 'Copy buttons copy one segment or the selection',
         resetShortcut: 'Reset the notepad position and size',
         workspace: 'Workspace',
@@ -2344,6 +2344,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const loadFailedRef = useRef(false);
       const loadSeqRef = useRef(0);
       const inputActionsRef = useRef(null);
+      /** Live composer input store (`hooks.input`): the only way to read the draft text. */
+      const inputStateRef = useRef(null);
       const dragRef = useRef(null);
       const resizeRef = useRef(null);
       const sendingRef = useRef(false);
@@ -2493,15 +2495,89 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const signatureBefore = JSON.stringify(serializeSegments(before));
         const signatureAfter = JSON.stringify(serializeSegments(after));
         if (signatureBefore === signatureAfter) return;
+        pushHistoryEntry({ before, after });
+      };
+
+      /** Append one undo step, discarding the redo tail and trimming to the limit. */
+      const pushHistoryEntry = (entry) => {
         const state = historyRef.current;
         // A new branch discards the redo tail.
         if (state.index < state.entries.length) state.entries = state.entries.slice(0, state.index);
-        state.entries.push({ before, after });
+        state.entries.push(entry);
         const limit = clampInt(settingsRef.current.undoLimit, 5, 200, 50);
         if (state.entries.length > limit) state.entries.splice(0, state.entries.length - limit);
         state.index = state.entries.length;
         setHistoryVer((version) => version + 1);
       };
+
+      /** Current composer draft text, or null when the live input store is unavailable. */
+      const readDraftText = () => {
+        const store = inputStateRef.current;
+        if (store === null || store === undefined || typeof store.getSnapshot !== 'function') return null;
+        try {
+          const snapshot = store.getSnapshot();
+          return typeof snapshot?.draft === 'string' ? snapshot.draft : null;
+        } catch {
+          return null;
+        }
+      };
+
+      /**
+       * Record a composer insert / replace as its own undo step. The composer
+       * keeps native undo for typing, but a programmatic insert / setDraft does
+       * not survive as one reversible step there, so the plugin history owns it.
+       */
+      const recordComposerHistory = (before, after) => {
+        if (historyApplyingRef.current) return;
+        if (typeof before !== 'string' || typeof after !== 'string' || before === after) return;
+        const sessionId = bindingRef.current?.id;
+        if (typeof sessionId !== 'string' || sessionId === '') return;
+        pushHistoryEntry({ kind: 'composer', sessionId, before, after });
+      };
+
+      /**
+       * Restore one composer step. The step only applies while the composer
+       * still holds the draft the step produced; a draft edited (or cleared by
+       * a send) since then retires the step instead of wiping that text.
+       */
+      const applyComposerStep = (entry, undo) => {
+        if (entry.sessionId !== bindingRef.current?.id) return false;
+        const actions = inputActionsRef.current;
+        if (actions === null || actions === undefined || typeof actions.setDraft !== 'function') return false;
+        const current = readDraftText();
+        const expected = undo ? entry.after : entry.before;
+        if (current === null || current !== expected) return false;
+        try {
+          actions.setDraft(undo ? entry.before : entry.after);
+          actions.persistDraft?.();
+          setTextSelectionState(null);
+          pendingSelectionRef.current = null;
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      /**
+       * Sends are irreversible: a card a send archived (`send` / `compose`
+       * origin) is pinned to its current body, archived flag and origin in
+       * every restored snapshot, and re-appended when the snapshot predates
+       * it. Undo / redo therefore cannot unarchive, drop or rewrite it.
+       */
+      const keepSentCards = (target) => {
+        const pinned = segmentsRef.current.filter((segment) => segment.archived === true
+          && (segment.origin === ARCHIVE_ORIGIN.send || segment.origin === ARCHIVE_ORIGIN.compose));
+        if (pinned.length === 0) return target;
+        const pinnedById = new Map(pinned.map((segment) => [segment.id, segment]));
+        const restored = target.map((segment) => pinnedById.get(segment.id) ?? segment);
+        const present = new Set(restored.map((segment) => segment.id));
+        for (const segment of pinned) if (!present.has(segment.id)) restored.push(segment);
+        return restored;
+      };
+
+      // Sends are never recorded as steps: a send either reuses the current
+      // archive state or only adds a sent card, so undo / redo have nothing of
+      // their own to replay. `keepSentCards` keeps the cards themselves safe.
 
       /**
        * Finish a burst of text / title edits. Typing is recorded as one
@@ -2546,10 +2622,20 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
        */
       const discardHistoryFor = (ids) => {
         const state = historyRef.current;
-        state.entries = state.entries.filter((entry) =>
-          !entry.before.some((segment) => ids.has(segment.id))
-          && !entry.after.some((segment) => ids.has(segment.id)));
-        state.index = Math.min(state.index, state.entries.length);
+        const kept = [];
+        let removedBefore = 0;
+        state.entries.forEach((entry, index) => {
+          const drop = entry.kind !== 'composer'
+            && (entry.before.some((segment) => ids.has(segment.id))
+              || entry.after.some((segment) => ids.has(segment.id)));
+          if (drop) {
+            if (index < state.index) removedBefore += 1;
+            return;
+          }
+          kept.push(entry);
+        });
+        state.entries = kept;
+        state.index = Math.max(0, Math.min(state.index - removedBefore, state.entries.length));
         setHistoryVer((version) => version + 1);
       };
 
@@ -2557,24 +2643,44 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         // Any still-pending typing burst is the newest change; commit it first
         // so undo / redo can never silently drop that text.
         flushTextHistory();
-        const state = historyRef.current;
         const undo = direction !== 'redo';
-        const entry = undo ? state.entries[state.index - 1] : state.entries[state.index];
-        if (entry === undefined) return false;
-        historyApplyingRef.current = true;
-        try {
-          clearPendingImageDeletes();
-          setSegmentUndo(new Map());
-          setBatchUndoState(null);
-          setTextSelectionState(null);
-          const target = undo ? entry.before : entry.after;
-          commitSegments(target, { record: false });
-          state.index += undo ? -1 : 1;
-          setHistoryVer((version) => version + 1);
-          showToast(t(undo ? 'undone' : 'redone'));
-          return true;
-        } finally {
-          historyApplyingRef.current = false;
+        for (;;) {
+          const state = historyRef.current;
+          const entry = undo ? state.entries[state.index - 1] : state.entries[state.index];
+          if (entry === undefined) return false;
+          if (entry.kind === 'composer') {
+            if (applyComposerStep(entry, undo)) {
+              state.index += undo ? -1 : 1;
+              setHistoryVer((version) => version + 1);
+              showToast(t(undo ? 'undone' : 'redone'));
+              return true;
+            }
+            // The composer moved on (typed text, another session, a send):
+            // retire the stale step and keep undoing the neighbouring one.
+            if (undo) {
+              state.entries.splice(state.index - 1, 1);
+              state.index -= 1;
+            } else {
+              state.entries.splice(state.index, 1);
+            }
+            setHistoryVer((version) => version + 1);
+            continue;
+          }
+          historyApplyingRef.current = true;
+          try {
+            clearPendingImageDeletes();
+            setSegmentUndo(new Map());
+            setBatchUndoState(null);
+            setTextSelectionState(null);
+            const target = undo ? entry.before : entry.after;
+            commitSegments(keepSentCards(target), { record: false });
+            state.index += undo ? -1 : 1;
+            setHistoryVer((version) => version + 1);
+            showToast(t(undo ? 'undone' : 'redone'));
+            return true;
+          } finally {
+            historyApplyingRef.current = false;
+          }
         }
       };
 
@@ -2585,6 +2691,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const sessions = ctx.get('sessions');
         const current = uiSession?.adapter?.current;
         if (current === undefined || sessions === undefined) {
+          inputActionsRef.current = null;
+          inputStateRef.current = null;
           setBinding(null);
           return undefined;
         }
@@ -2595,6 +2703,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           const row = id !== undefined ? sessions.list.getSnapshot()?.byId?.[id] : undefined;
           const cwd = typeof row?.cwd === 'string' && row.cwd !== '' ? row.cwd : undefined;
           inputActionsRef.current = snapshot?.props?.inputActions ?? null;
+          inputStateRef.current = snapshot?.hooks?.input ?? null;
           const next = id !== undefined && cwd !== undefined ? { id, cwd } : null;
           bindingRef.current = next;
           setBinding((previous) =>
@@ -4140,9 +4249,11 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const actions = inputActionsRef.current;
         if (actions === null || actions === undefined) return false;
         if (typeof actions.captureInsertion !== 'function' || typeof actions.insertText !== 'function') return false;
+        const before = readDraftText();
         try {
           const span = actions.captureInsertion();
           if (actions.insertText(value, span) === true) {
+            recordComposerHistory(before, readDraftText());
             actions.persistDraft?.();
             return true;
           }
@@ -4155,8 +4266,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const replaceValue = (value) => {
         const actions = inputActionsRef.current;
         if (actions === null || actions === undefined || typeof actions.setDraft !== 'function') return false;
+        const before = readDraftText();
         try {
           actions.setDraft(value);
+          recordComposerHistory(before, readDraftText());
           actions.persistDraft?.();
           return true;
         } catch {
@@ -4366,7 +4479,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                 : segment));
             setSelection(new Set([...selectedRef.current].filter((id) => !ids.has(id))));
             setArchiveCollapse(ids, ARCHIVE_ORIGIN.send);
-            commitSegments(next);
+            // A send is irreversible and never an undo / redo step.
+            commitSegments(next, { record: false });
           }
         } catch (reason) {
           showToast(`${t('sendFailed')}: ${String(reason?.message ?? reason)}`);
@@ -4460,7 +4574,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                 : segment));
             setSelection(new Set([...selectedRef.current].filter((id) => !ids.has(id))));
             setArchiveCollapse(ids, ARCHIVE_ORIGIN.send);
-            commitSegments(next);
+            // A send is irreversible and never an undo / redo step.
+            commitSegments(next, { record: false });
             await saveNowRef.current?.({ force: true });
             archived = true;
           }
@@ -4552,7 +4667,9 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         nextCollapsed.add(segment.id);
         collapseSeenRef.current.add(segment.id);
         syncCollapsed(nextCollapsed);
-        commitSegments([...current, segment]);
+        // The capture belongs to a send, so it is never an undo / redo step;
+        // `keepSentCards` keeps the archived card out of reach of older steps.
+        commitSegments([...current, segment], { record: false });
         // Auto-capture is a persistence promise, not a draft: commit it even in
         // manual save mode. Other unsaved edits ride along through the same PUT.
         await saveNowRef.current?.({ force: true });
