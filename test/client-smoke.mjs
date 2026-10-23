@@ -450,9 +450,15 @@ const listSource = {
   subscribe: () => () => {},
 };
 
+const composerSends = [];
 const conversation = {
   async send(text) {
     sent.push(text);
+  },
+  async sendSession(session, text) {
+    composerSends.push({ session, text });
+    sent.push(text);
+    return { kind: 'success' };
   },
 };
 const scopedContext = {
@@ -461,6 +467,7 @@ const scopedContext = {
 const promptModes = [];
 const submittedModes = [];
 const sessionFace = {
+  sessionId: SESSION,
   beginSubmission(input) {
     submittedModes.push(input.mode);
     return { requestId: 'echo-1', abandon() {} };
@@ -557,6 +564,7 @@ const ctx = {
     if (name === 'locale') return locale;
     if (name === 'uiSession') return { adapter: { current: currentSource } };
     if (name === 'sessions') return sessionsService;
+    if (name === 'conversation') return conversation;
     if (name === 'uiWorkspace') return uiWorkspace;
     if (name === 'configForms') return configForms;
     return undefined;
@@ -689,6 +697,11 @@ function archivedCards(seen) {
   return seen.filter(({ element }) => element.type === 'article' && element.props['data-archived'] === 'true');
 }
 
+/** Entries rendered inside one article (its descendant subtree in this render). */
+function withinCard(seen, card, predicate) {
+  return seen.find(({ element, path }) => path.startsWith(`${card.path}.c`) && predicate(element));
+}
+
 async function pressButton(seen, title) {
   const target = findByTitle(seen, title);
   assert.ok(target, `${title} button exists`);
@@ -703,6 +716,11 @@ assert.ok(requests.some((request) => request.method === 'GET' && request.url.inc
 assert.equal(textareas(initial.seen).length, 2, 'two active segments render');
 assert.deepEqual(textareas(initial.seen).map(({ element }) => element.props.value), ['第一段内容', '第二段内容']);
 assert.equal(archivedCards(initial.seen).length, 1, 'archived card is present in the document');
+assert.equal(archivedCards(initial.seen)[0].element.props['data-collapsed'], 'false',
+  'legacy / manually archived cards start expanded');
+assert.ok(withinCard(initial.seen, archivedCards(initial.seen)[0], (element) =>
+  element.type === 'button' && element.props.className === 'dsh-np-fold'),
+'archived cards expose a fold toggle');
 assert.ok(findByTitle(initial.seen, '显示归档'), 'archive toggle is present without a count badge');
 assert.ok(!initial.seen.some(({ element }) => element.props?.className === 'dsh-np-badge'), 'archive count badge is gone');
 assert.ok(!initial.text.includes('显示归档（1）'), 'archive toggle title omits the count');
@@ -884,6 +902,11 @@ await new Promise((resolve) => setTimeout(resolve, 650));
 const afterSendSave = await renderRounds(1);
 const sendPut = JSON.parse(requests.filter((request) => request.method === 'PUT').at(-1).body);
 assert.ok(sendPut.segments.some((segment) => segment.text === '第一' && segment.archived === true), 'autosave keeps the archived flag');
+assert.equal(sendPut.segments.find((segment) => segment.text === '第一').origin, 'send',
+  'notepad sends record the send origin');
+const sentCard = archivedCards(afterSendOne.seen).find(({ element }) => elementText(element).includes('第一'));
+assert.ok(sentCard, 'the sent card is in the archive');
+assert.equal(sentCard.element.props['data-collapsed'], 'false', 'send-archived cards start expanded');
 
 // Select all + batch replace / insert / send ------------------------------
 const selectAll = afterSendSave.seen.find(({ element }) => element.type === 'input'
@@ -1890,6 +1913,15 @@ const archivedView = await renderRounds(2);
 const firstArchived = archivedCards(archivedView.seen)[0];
 assert.ok(firstArchived && elementText(firstArchived.element).includes(firstActiveText),
   'the newest archived segment sits at the top of the archive');
+assert.equal(firstArchived.element.props['data-collapsed'], 'false', 'manually archived cards start expanded');
+await new Promise((resolve) => setTimeout(resolve, 650));
+const archivedPut = requests
+  .filter((request) => request.method === 'PUT')
+  .map((request) => JSON.parse(request.body))
+  .find((body) => body.segments.some((segment) => segment.text === firstActiveText && segment.archived === true));
+assert.ok(archivedPut, 'the manual archive reaches the note file');
+assert.equal(archivedPut.segments.find((segment) => segment.text === firstActiveText).origin, 'manual',
+  'the archive button records the manual origin');
 const archiveListElement = findByClass(archivedView.seen, 'dsh-np-archive-list');
 let archiveScrollCalls = 0;
 if (archiveListElement) {
@@ -1937,6 +1969,51 @@ assert.equal(archivedCards(afterWipeBackspace.seen).length, archivedBeforeBacksp
   'Backspace deleting the last active card keeps every archived segment');
 assert.equal(textareas(afterWipeBackspace.seen).length, 1,
   'a fresh empty card replaces the deleted last active card');
+
+// Chat composer sends are auto-archived and default collapsed ------------
+let chatView = await renderRounds(2);
+const archivedBeforeChatSend = archivedCards(chatView.seen).length;
+const chatMessage = '自动保存的对话消息';
+await conversation.sendSession({ sessionId: SESSION }, chatMessage);
+await new Promise((resolve) => setTimeout(resolve, 120));
+chatView = await renderRounds(2);
+assert.equal(archivedCards(chatView.seen).length, archivedBeforeChatSend + 1,
+  'a sent chat message is saved into the workspace archive');
+const chatCard = archivedCards(chatView.seen).find(({ element }) => elementText(element).includes(chatMessage));
+assert.ok(chatCard, 'the auto-saved chat message renders as an archive card');
+assert.equal(chatCard.element.props['data-collapsed'], 'true', 'auto-saved chat messages start collapsed');
+assert.ok(withinCard(chatView.seen, chatCard, (element) => element.props?.className === 'dsh-np-seg-preview'),
+  'a collapsed auto-saved card keeps a preview');
+assert.ok(!withinCard(chatView.seen, chatCard, (element) => element.props?.className === 'dsh-np-seg-archived-text'),
+  'a collapsed auto-saved card hides its full body');
+const savedChat = storedSegments.filter((segment) => segment.text === chatMessage);
+assert.equal(savedChat.length, 1, 'the auto-saved card is persisted');
+assert.equal(savedChat[0].archived, true);
+assert.equal(savedChat[0].origin, 'compose', 'chat sends record the compose origin');
+
+const expandChat = withinCard(chatView.seen, chatCard, (element) =>
+  element.type === 'button' && element.props.title === '展开分段');
+assert.ok(expandChat, 'an auto-saved archive card can be expanded');
+expandChat.element.props.onClick();
+chatView = await renderRounds(2);
+const expandedChat = archivedCards(chatView.seen).find(({ element }) => elementText(element).includes(chatMessage));
+assert.equal(expandedChat.element.props['data-collapsed'], 'false', 'expanding reveals the archived card');
+assert.ok(withinCard(chatView.seen, expandedChat, (element) => element.props?.className === 'dsh-np-seg-archived-text'),
+  'expanded archive cards show their full body');
+
+const archivedBeforeDuplicate = archivedCards(chatView.seen).length;
+await conversation.sendSession({ sessionId: SESSION }, `  ${chatMessage}\n`);
+await new Promise((resolve) => setTimeout(resolve, 80));
+chatView = await renderRounds(2);
+assert.equal(archivedCards(chatView.seen).length, archivedBeforeDuplicate,
+  'identical chat content is de-duplicated');
+await conversation.sendSession({ sessionId: SESSION }, '已归档内容');
+await new Promise((resolve) => setTimeout(resolve, 80));
+chatView = await renderRounds(2);
+assert.equal(archivedCards(chatView.seen).length, archivedBeforeDuplicate,
+  'content that already exists as an active or archived segment is de-duplicated');
+assert.equal(storedSegments.filter((segment) => segment.text.trim() === chatMessage).length, 1,
+  'the saved archive file still holds exactly one copy');
 
 // Capture the live panel geometry as the new default.
 settingsView = renderSettings();

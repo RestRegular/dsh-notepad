@@ -11,6 +11,10 @@
  *   - every card can be inserted, replace the composer, or be sent directly;
  *   - sending archives the segment automatically, and only archived segments
  *     can be deleted;
+ *   - a successful chat-composer send is mirrored into the workspace archive,
+ *     de-duplicated by content;
+ *   - archive cards are foldable: captured chat messages start folded while
+ *     manual archives and notepad sends start expanded;
  *   - active segments can be multi-selected for batch insert / replace /
  *     send / archive, with one-click select-all.
  *
@@ -59,6 +63,19 @@ window.__ModuleLoader__.load({
     const IMAGE_DELETE_DELAY = 5000;
     const OPTIMIZE_CACHE_LIMIT = 100;
     const EDGE_GAP = 8;
+    /**
+     * Archive sources. `manual` and `send` render expanded by default; a
+     * `compose` card is a chat message captured automatically and starts
+     * collapsed so a busy conversation does not bury the archive.
+     */
+    const ARCHIVE_ORIGIN = Object.freeze({
+      manual: 'manual',
+      send: 'send',
+      compose: 'compose',
+    });
+    const ARCHIVE_ORIGIN_SET = new Set(Object.values(ARCHIVE_ORIGIN));
+    /** Marks the shared conversation service after the send interceptor is installed. */
+    const COMPOSER_PATCH_KEY = Symbol.for('dsh-notepad.composer-send.v1');
     const IMAGE_MIME = {
       'image/png': 'png',
       'image/jpeg': 'jpg',
@@ -1575,6 +1592,74 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       }
     }
 
+    /** Content identity used by archive de-duplication (line endings / edges only). */
+    function contentKey(text) {
+      return String(text ?? '').replace(/\r\n?/gu, '\n').trim();
+    }
+
+    /** Normalize one archive source; unknown values become the legacy manual origin. */
+    function archiveOriginOf(value) {
+      return typeof value === 'string' && ARCHIVE_ORIGIN_SET.has(value) ? value : null;
+    }
+
+    /**
+     * Install one process-wide around-hook on the conversation service so a
+     * successful composer send can be mirrored into the workspace archive.
+     * The host exposes no send event, and sendSession is the single path every
+     * ordinary composer message takes. The hook stores its state on the
+     * service itself so a plugin reload reuses it instead of wrapping twice.
+     * @param {any} ctx plugin context
+     * @returns {{listeners: Set<(session: any, text: string) => void>} | null}
+     */
+    function installComposerSendPatch(ctx) {
+      let conversation;
+      try {
+        conversation = ctx?.get?.('conversation');
+      } catch {
+        conversation = undefined;
+      }
+      if (conversation === null || conversation === undefined
+        || typeof conversation.sendSession !== 'function') return null;
+      const existing = conversation[COMPOSER_PATCH_KEY];
+      if (existing !== null && existing !== undefined && existing.listeners instanceof Set) return existing;
+      const original = conversation.sendSession;
+      const state = { listeners: new Set() };
+      const wrapped = async function sendSessionPatched(...args) {
+        const outcome = await original.apply(this, args);
+        const text = args[1];
+        if (outcome?.kind === 'success' && typeof text === 'string' && text.trim() !== '') {
+          for (const listener of [...state.listeners]) {
+            try {
+              const result = listener(args[0], text);
+              if (result !== null && result !== undefined && typeof result.catch === 'function') {
+                result.catch((error) => {
+                  console.warn('[dsh-notepad] archive-after-send failed:', error?.message ?? error);
+                });
+              }
+            } catch (error) {
+              console.warn('[dsh-notepad] archive-after-send failed:', error?.message ?? error);
+            }
+          }
+        }
+        return outcome;
+      };
+      try {
+        Object.defineProperty(conversation, 'sendSession', {
+          configurable: true,
+          writable: true,
+          value: wrapped,
+        });
+        Object.defineProperty(conversation, COMPOSER_PATCH_KEY, {
+          configurable: true,
+          writable: true,
+          value: state,
+        });
+      } catch {
+        return null;
+      }
+      return state;
+    }
+
     function newSegment(text, options = {}) {
       return {
         id: newSegmentId(),
@@ -1586,6 +1671,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         images: [],
         archived: false,
         archivedAt: null,
+        origin: null,
       };
     }
 
@@ -1604,6 +1690,9 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           : {}),
         ...(segment.archived === true ? { archived: true } : {}),
         ...(segment.archived === true && typeof segment.archivedAt === 'string' ? { archivedAt: segment.archivedAt } : {}),
+        ...(segment.archived === true && archiveOriginOf(segment.origin) !== null
+          ? { origin: archiveOriginOf(segment.origin) }
+          : {}),
       }));
     }
 
@@ -1625,6 +1714,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             images: normalizeImages(item.images),
             archived,
             archivedAt: archived && typeof item.archivedAt === 'string' ? item.archivedAt : null,
+            origin: archived ? archiveOriginOf(item.origin) : null,
           });
         }
         return out;
@@ -2287,6 +2377,12 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const wsWrapRef = useRef(null);
       const textareaSettersRef = useRef(new Map());
       const fileInputSettersRef = useRef(new Map());
+      /** True only while the current workspace note has finished its first load. */
+      const loadedRef = useRef(false);
+      /** Archive ids whose initial folded state has already been decided. */
+      const collapseSeenRef = useRef(new Set());
+      /** Latest chat-send archive handler (the installed hook must see current state). */
+      const composerSendRef = useRef(null);
 
       settingsRef.current = settings;
       collapsedRef.current = collapsed;
@@ -2305,6 +2401,52 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const syncCollapsed = (next) => {
         collapsedRef.current = next;
         setCollapsed(next);
+      };
+
+      /**
+       * Decide the initial folded state for archive cards the current view has
+       * not seen yet. Auto-saved conversation messages start collapsed; manual
+       * archives, sent notepad segments and legacy cards start expanded.
+       * @param {Array<any>} list
+       */
+      const applyArchiveCollapseDefaults = (list) => {
+        const next = new Set(collapsedRef.current);
+        let changed = false;
+        for (const segment of list) {
+          if (segment?.archived !== true) continue;
+          if (collapseSeenRef.current.has(segment.id)) continue;
+          collapseSeenRef.current.add(segment.id);
+          if (segment.origin === ARCHIVE_ORIGIN.compose && !next.has(segment.id)) {
+            next.add(segment.id);
+            changed = true;
+          }
+        }
+        if (changed) syncCollapsed(next);
+      };
+
+      /**
+       * Apply the requested default visibility for newly archived ids.
+       * @param {Iterable<string>} ids
+       * @param {'manual' | 'send' | 'compose'} origin
+       */
+      const setArchiveCollapse = (ids, origin) => {
+        const next = new Set(collapsedRef.current);
+        for (const id of ids) {
+          collapseSeenRef.current.add(id);
+          if (origin === ARCHIVE_ORIGIN.compose) next.add(id);
+          else next.delete(id);
+        }
+        syncCollapsed(next);
+      };
+
+      /** Forget folded state for ids that leave the archive. */
+      const forgetArchiveCollapse = (ids) => {
+        const next = new Set(collapsedRef.current);
+        for (const id of ids) {
+          collapseSeenRef.current.delete(id);
+          next.delete(id);
+        }
+        syncCollapsed(next);
       };
 
       /** Changes whenever the archived set/order changes (archive auto-scroll). */
@@ -2734,6 +2876,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         if (binding === null) {
           rootRef.current = '';
           rootSessionRef.current = '';
+          loadedRef.current = false;
+          collapseSeenRef.current = new Set();
           segmentsRef.current = [];
           setSegments([]);
           setSelection(new Set());
@@ -2765,6 +2909,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         if (historyRootRef.current !== root) {
           resetHistory();
           historyRootRef.current = root;
+          collapseSeenRef.current = new Set();
           syncCollapsed(new Set());
         }
         for (const timer of leaveTimersRef.current) clearTimeout(timer);
@@ -2774,6 +2919,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         rootRef.current = root;
         rootSessionRef.current = binding.id;
         let cancelled = false;
+        loadedRef.current = false;
         loadFailedRef.current = false;
         segmentsRef.current = [];
         setSegments([]);
@@ -2789,6 +2935,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         setError('');
         const load = () => {
           const mySeq = ++loadSeqRef.current;
+          loadedRef.current = false;
           loadFailedRef.current = false;
           setStatus('loading');
           setError('');
@@ -2804,14 +2951,17 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               setSegmentUndo(new Map());
               setBatchUndoState(null);
               resetHistory();
+              applyArchiveCollapseDefaults(value);
               versionRef.current = typeof data.mtimeMs === 'number' ? data.mtimeMs : null;
               setSavedAt(typeof data.mtimeMs === 'number' ? data.mtimeMs : null);
               dirtyRef.current = false;
+              loadedRef.current = true;
               setStatus('saved');
             })
             .catch((reason) => {
               if (cancelled || rootRef.current !== root || mySeq !== loadSeqRef.current) return;
               loadFailedRef.current = true;
+              loadedRef.current = false;
               setStatus('error');
               setError(String(reason?.message || reason));
             });
@@ -3110,6 +3260,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               growAllRef.current = true;
               setSegments(value);
               pruneSelectionFor(value);
+              applyArchiveCollapseDefaults(value);
               setSegmentUndo(new Map());
               setBatchUndoState(null);
               resetHistory();
@@ -3422,8 +3573,11 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           if (latest === undefined) return;
           const archivedAt = new Date().toISOString();
           const next = segmentsRef.current.map((segment) =>
-            (segment.id === id ? { ...segment, archived: true, archivedAt } : segment));
+            (segment.id === id
+              ? { ...segment, archived: true, archivedAt, origin: ARCHIVE_ORIGIN.manual }
+              : segment));
           setSelection(new Set([...selectedRef.current].filter((value) => value !== id)));
+          setArchiveCollapse([id], ARCHIVE_ORIGIN.manual);
           commitSegments(next);
           showToast(t('archivedToast'));
         });
@@ -3445,8 +3599,11 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           if (live.size === 0) return;
           const archivedAt = new Date().toISOString();
           const next = segmentsRef.current.map((segment) =>
-            (live.has(segment.id) ? { ...segment, archived: true, archivedAt } : segment));
+            (live.has(segment.id)
+              ? { ...segment, archived: true, archivedAt, origin: ARCHIVE_ORIGIN.manual }
+              : segment));
           setSelection(new Set());
+          setArchiveCollapse(live, ARCHIVE_ORIGIN.manual);
           commitSegments(next);
           showToast(t('archivedCount', { n: live.size }));
         });
@@ -3456,7 +3613,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const current = segmentsRef.current.find((segment) => segment.id === id && segment.archived === true);
         if (current === undefined) return;
         const next = segmentsRef.current.map((segment) =>
-          (segment.id === id ? { ...segment, archived: false, archivedAt: null } : segment));
+          (segment.id === id
+            ? { ...segment, archived: false, archivedAt: null, origin: null }
+            : segment));
+        forgetArchiveCollapse([id]);
         commitSegments(next, { focus: { id, caret: current.text.length } });
         showToast(t('restoredToast'));
       };
@@ -3465,7 +3625,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const restored = segmentsRef.current.filter((segment) => segment.archived === true);
         if (restored.length === 0) return;
         const next = segmentsRef.current.map((segment) =>
-          (segment.archived === true ? { ...segment, archived: false, archivedAt: null } : segment));
+          (segment.archived === true
+            ? { ...segment, archived: false, archivedAt: null, origin: null }
+            : segment));
+        forgetArchiveCollapse(restored.map((segment) => segment.id));
         commitSegments(next);
         showToast(t('restoredCount', { n: restored.length }));
       };
@@ -3489,6 +3652,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           if (latest === undefined) return;
           undoRef.current = { snapshot: segmentsRef.current };
           const next = segmentsRef.current.filter((segment) => segment.id !== id);
+          forgetArchiveCollapse([id]);
           commitSegments(next);
           scheduleImageCleanup(latest.images);
           showToast(t('deletedToast'), { label: t('undo'), onClick: undoLast });
@@ -3516,6 +3680,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           if (latest === undefined) return;
           const next = segmentsRef.current.filter((segment) => segment.id !== id);
           // Irreversible delete: deliberately not part of plugin history.
+          forgetArchiveCollapse([id]);
           commitSegments(next, { record: false });
           discardHistoryFor(new Set([id]));
           scheduleImageCleanup(latest.images);
@@ -3541,6 +3706,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           setSelection(new Set());
           const next = segmentsRef.current.filter((segment) => !ids.has(segment.id));
           // Irreversible batch delete: deliberately not part of plugin history.
+          forgetArchiveCollapse(ids);
           commitSegments(next, { record: false });
           discardHistoryFor(ids);
           scheduleImageCleanup(removed.flatMap((segment) => (Array.isArray(segment.images) ? segment.images : [])));
@@ -3556,6 +3722,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           if (current.length === 0) return;
           undoRef.current = { snapshot: segmentsRef.current };
           const next = segmentsRef.current.filter((segment) => segment.archived !== true);
+          forgetArchiveCollapse(current.map((segment) => segment.id));
           commitSegments(next);
           scheduleImageCleanup(current.flatMap((segment) => (Array.isArray(segment.images) ? segment.images : [])));
           showToast(t('clearedArchive', { n: current.length }), { label: t('undo'), onClick: undoLast });
@@ -3592,6 +3759,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           images,
           archived: false,
           archivedAt: null,
+          origin: null,
         };
         undoRef.current = { snapshot: segmentsRef.current };
         const next = segmentsRef.current.filter((segment) => !ids.has(segment.id));
@@ -3927,9 +4095,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
 
       const collapseAllSegments = () => {
         const next = new Set(
-          segmentsRef.current
-            .filter((segment) => segment.archived !== true)
-            .map((segment) => segment.id),
+          segmentsRef.current.map((segment) => segment.id),
         );
         syncCollapsed(next);
       };
@@ -4195,8 +4361,11 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           if (ids.size > 0 && stillHere) {
             const archivedAt = new Date().toISOString();
             const next = segmentsRef.current.map((segment) =>
-              (ids.has(segment.id) ? { ...segment, archived: true, archivedAt } : segment));
+              (ids.has(segment.id)
+                ? { ...segment, archived: true, archivedAt, origin: ARCHIVE_ORIGIN.send }
+                : segment));
             setSelection(new Set([...selectedRef.current].filter((id) => !ids.has(id))));
+            setArchiveCollapse(ids, ARCHIVE_ORIGIN.send);
             commitSegments(next);
           }
         } catch (reason) {
@@ -4254,7 +4423,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             && current.some((segment) => ids.has(segment.id) && segment.archived === true)) {
             const restored = current.map((segment) =>
               (ids.has(segment.id) && segment.archived === true
-                ? { ...segment, archived: false, archivedAt: null }
+                ? { ...segment, archived: false, archivedAt: null, origin: null }
                 : segment));
             commitSegments(restored, { record: false });
             await saveNowRef.current?.({ force: true });
@@ -4265,7 +4434,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           // back to the old note so nothing is lost.
           if (targetRoot === '' || targetSession === '') return;
           const restored = snapshot.map((segment) =>
-            (ids.has(segment.id) ? { ...segment, archived: false, archivedAt: null } : segment));
+            (ids.has(segment.id) ? { ...segment, archived: false, archivedAt: null, origin: null } : segment));
           try {
             await saveNote(targetRoot, targetSession, serializeSegments(restored));
             reloadRef.current?.();
@@ -4286,8 +4455,11 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           if (ids.size > 0) {
             const archivedAt = new Date().toISOString();
             const next = segmentsRef.current.map((segment) =>
-              (ids.has(segment.id) ? { ...segment, archived: true, archivedAt } : segment));
+              (ids.has(segment.id)
+                ? { ...segment, archived: true, archivedAt, origin: ARCHIVE_ORIGIN.send }
+                : segment));
             setSelection(new Set([...selectedRef.current].filter((id) => !ids.has(id))));
+            setArchiveCollapse(ids, ARCHIVE_ORIGIN.send);
             commitSegments(next);
             await saveNowRef.current?.({ force: true });
             archived = true;
@@ -4335,6 +4507,57 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         // away and must not leak back into a copy-all.
         await copySegments(segmentsRef.current.filter((segment) => segment.archived !== true));
       };
+
+      /**
+       * Mirror one successful composer send into the current workspace archive.
+       * The same content is never stored twice, whether it is still active or
+       * already archived. A captured message starts folded so an automatic
+       * entry does not dominate the archive; manual archives and notepad sends
+       * stay expanded.
+       * @param {any} session Session passed to conversation.sendSession
+       * @param {string} text serialized composer message
+       */
+      const archiveComposerMessage = async (session, text) => {
+        const sessionId = typeof session?.sessionId === 'string' ? session.sessionId : '';
+        if (sessionId === '' || rootSessionRef.current !== sessionId) return;
+        const value = contentKey(text);
+        if (value === '') return;
+        if (text.length > MAX_SEGMENT_CHARS) {
+          console.warn('[dsh-notepad] archive-after-send skipped: message is too large');
+          return;
+        }
+        const targetRoot = rootRef.current;
+        if (targetRoot === '') return;
+        // A send can settle while the note is still loading; wait for the
+        // current root so the appended card is not overwritten by that load.
+        const deadline = Date.now() + 4000;
+        while (!loadedRef.current && Date.now() < deadline) {
+          if (rootRef.current !== targetRoot || rootSessionRef.current !== sessionId) return;
+          await new Promise((resolve) => setTimeout(resolve, 40));
+        }
+        if (!loadedRef.current || rootRef.current !== targetRoot || rootSessionRef.current !== sessionId) return;
+        const current = segmentsRef.current;
+        if (current.some((segment) => contentKey(segment.text) === value)) return;
+        if (current.length >= MAX_SEGMENTS) {
+          console.warn('[dsh-notepad] archive-after-send skipped: segment limit reached');
+          return;
+        }
+        const segment = {
+          ...newSegment(text),
+          archived: true,
+          archivedAt: nowIso(),
+          origin: ARCHIVE_ORIGIN.compose,
+        };
+        const nextCollapsed = new Set(collapsedRef.current);
+        nextCollapsed.add(segment.id);
+        collapseSeenRef.current.add(segment.id);
+        syncCollapsed(nextCollapsed);
+        commitSegments([...current, segment]);
+        // Auto-capture is a persistence promise, not a draft: commit it even in
+        // manual save mode. Other unsaved edits ride along through the same PUT.
+        await saveNowRef.current?.({ force: true });
+      };
+      composerSendRef.current = archiveComposerMessage;
 
       // UI actions ----------------------------------------------------------
       const toggleCollapse = () => {
@@ -4585,6 +4808,39 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         window.addEventListener('pointerup', stop);
         window.addEventListener('pointercancel', stop);
       };
+
+      // Mirror composer sends into the workspace archive --------------------
+      useEffect(() => {
+        let disposed = false;
+        let patch = null;
+        let retry = 0;
+        const listener = (session, text) => {
+          const handler = composerSendRef.current;
+          if (handler !== null && handler !== undefined) handler(session, text);
+        };
+        const attach = () => {
+          patch = installComposerSendPatch(ctx);
+          if (patch === null) return false;
+          patch.listeners.add(listener);
+          return true;
+        };
+        if (!attach() && typeof setInterval === 'function') {
+          // The conversation service is normally ready before the overlay
+          // mounts; keep the fallback so a late-provided service still hooks.
+          retry = setInterval(() => {
+            if (disposed) return;
+            if (attach()) {
+              clearInterval(retry);
+              retry = 0;
+            }
+          }, 500);
+        }
+        return () => {
+          disposed = true;
+          if (retry) clearInterval(retry);
+          if (patch !== null) patch.listeners.delete(listener);
+        };
+      }, []);
 
       // Render --------------------------------------------------------------
       if (binding === null || present !== true) return null;
@@ -5446,92 +5702,114 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                         archiveListRef.current = element;
                       },
                     },
-                    archivedSegments.map((segment) => h(
-                      'article',
-                      {
-                        key: segment.id,
-                        className: 'dsh-np-seg',
-                        'data-seg-id': segment.id,
-                        'data-archived': 'true',
-                        'data-leaving': leaving.has(segment.id) ? 'true' : 'false',
-                      },
-                      h(
-                        'div',
-                        { className: 'dsh-np-seg-head' },
-                        h('span', { className: 'dsh-np-archived-chip' }, t('archived')),
-                        typeof segment.title === 'string' && segment.title.trim() !== ''
-                          ? h('span', { className: 'dsh-np-seg-title' }, segment.title)
-                          : null,
-                        h('span', { className: 'dsh-np-spacer' }),
+                    archivedSegments.map((segment) => {
+                      const folded = collapsed.has(segment.id);
+                      const images = Array.isArray(segment.images) ? segment.images : [];
+                      const preview = segment.text.trim() === ''
+                        ? (images.length > 0 ? t('images', { n: images.length }) : t('emptySegment'))
+                        : segment.text;
+                      return h(
+                        'article',
+                        {
+                          key: segment.id,
+                          className: 'dsh-np-seg',
+                          'data-seg-id': segment.id,
+                          'data-archived': 'true',
+                          'data-collapsed': folded ? 'true' : 'false',
+                          'data-leaving': leaving.has(segment.id) ? 'true' : 'false',
+                        },
                         h(
-                          'button',
-                          {
-                            type: 'button',
-                            className: 'dsh-np-segbtn',
-                            title: t('copySegment'),
-                            'aria-label': t('copySegment'),
-                            disabled: segment.text.trim() === ''
-                              && !(Array.isArray(segment.images) && segment.images.length > 0),
-                            onClick: () => copySegments([segment]),
-                          },
-                          h(CopyIcon, { size: 14 }),
+                          'div',
+                          { className: 'dsh-np-seg-head' },
+                          h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'dsh-np-fold',
+                              title: folded ? t('expandSegment') : t('collapseSegment'),
+                              'aria-label': folded ? t('expandSegment') : t('collapseSegment'),
+                              'aria-expanded': folded ? 'false' : 'true',
+                              onClick: () => toggleCollapsed(segment.id),
+                            },
+                            h(folded ? ChevronRightIcon : ChevronDownIcon, { size: 13 }),
+                          ),
+                          h('span', { className: 'dsh-np-archived-chip' }, t('archived')),
+                          typeof segment.title === 'string' && segment.title.trim() !== ''
+                            ? h('span', { className: 'dsh-np-seg-title' }, segment.title)
+                            : null,
+                          h('span', { className: 'dsh-np-spacer' }),
+                          h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'dsh-np-segbtn',
+                              title: t('copySegment'),
+                              'aria-label': t('copySegment'),
+                              disabled: segment.text.trim() === ''
+                                && images.length === 0,
+                              onClick: () => copySegments([segment]),
+                            },
+                            h(CopyIcon, { size: 14 }),
+                          ),
+                          h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'dsh-np-segbtn',
+                              title: t('insertSegment'),
+                              'aria-label': t('insertSegment'),
+                              disabled: segment.text.trim() === ''
+                                && images.length === 0,
+                              onClick: () => insertSegments([segment]),
+                            },
+                            h(InsertIcon, { size: 14 }),
+                          ),
+                          h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'dsh-np-segbtn',
+                              title: t('replaceSegment'),
+                              'aria-label': t('replaceSegment'),
+                              disabled: segment.text.trim() === ''
+                                && images.length === 0,
+                              onClick: () => replaceSegments([segment]),
+                            },
+                            h(ReplaceIcon, { size: 14 }),
+                          ),
+                          h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'dsh-np-segbtn',
+                              title: t('restoreSegment'),
+                              'aria-label': t('restoreSegment'),
+                              onClick: () => restoreSegment(segment.id),
+                            },
+                            h(RestoreIcon, { size: 14 }),
+                          ),
+                          h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'dsh-np-segbtn',
+                              'data-danger': 'true',
+                              title: t('deleteSegment'),
+                              'aria-label': t('deleteSegment'),
+                              onClick: () => deleteArchived(segment.id),
+                            },
+                            h(TrashIcon, { size: 14 }),
+                          ),
                         ),
-                        h(
-                          'button',
-                          {
-                            type: 'button',
-                            className: 'dsh-np-segbtn',
-                            title: t('insertSegment'),
-                            'aria-label': t('insertSegment'),
-                            disabled: segment.text.trim() === ''
-                              && !(Array.isArray(segment.images) && segment.images.length > 0),
-                            onClick: () => insertSegments([segment]),
-                          },
-                          h(InsertIcon, { size: 14 }),
-                        ),
-                        h(
-                          'button',
-                          {
-                            type: 'button',
-                            className: 'dsh-np-segbtn',
-                            title: t('replaceSegment'),
-                            'aria-label': t('replaceSegment'),
-                            disabled: segment.text.trim() === ''
-                              && !(Array.isArray(segment.images) && segment.images.length > 0),
-                            onClick: () => replaceSegments([segment]),
-                          },
-                          h(ReplaceIcon, { size: 14 }),
-                        ),
-                        h(
-                          'button',
-                          {
-                            type: 'button',
-                            className: 'dsh-np-segbtn',
-                            title: t('restoreSegment'),
-                            'aria-label': t('restoreSegment'),
-                            onClick: () => restoreSegment(segment.id),
-                          },
-                          h(RestoreIcon, { size: 14 }),
-                        ),
-                        h(
-                          'button',
-                          {
-                            type: 'button',
-                            className: 'dsh-np-segbtn',
-                            'data-danger': 'true',
-                            title: t('deleteSegment'),
-                            'aria-label': t('deleteSegment'),
-                            onClick: () => deleteArchived(segment.id),
-                          },
-                          h(TrashIcon, { size: 14 }),
-                        ),
-                      ),
-                      h('div', { className: 'dsh-np-seg-archived-text' },
-                        segment.text === ''
-                          ? (Array.isArray(segment.images) && segment.images.length > 0 ? null : t('emptySegment'))
-                          : segment.text),
-                      renderMedia(segment, { readOnly: true }),
-                    )),
+                        folded
+                          ? h('div', { className: 'dsh-np-seg-preview' }, preview)
+                          : h('div', { className: 'dsh-np-seg-archived-text' },
+                              segment.text === ''
+                                ? (images.length > 0 ? null : t('emptySegment'))
+                                : segment.text),
+                        folded ? null : renderMedia(segment, { readOnly: true }),
+                      );
+                    }),
                   ),
             ),
           )
@@ -6469,6 +6747,14 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         } catch {
           /* The raw key listener and header buttons remain as fallbacks. */
         }
+      }
+
+      // Archive chat sends even before the overlay's first mount; the overlay
+      // itself still owns the listener and reuses this hook.
+      try {
+        installComposerSendPatch(ctx);
+      } catch {
+        /* The overlay retries when it mounts. */
       }
 
       const slots = ctx.get('slots');

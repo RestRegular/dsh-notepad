@@ -256,6 +256,47 @@ test('writeNote rejects malformed input', async (t) => {
   }
 });
 
+test('archive origins round-trip and stay on archived segments only', async (t) => {
+  const root = await workspace(t);
+  const archivedAt = '2026-01-03T00:00:00.000Z';
+  const written = await writeNote(root, [
+    { id: 'manual', text: '手动归档', archived: true, archivedAt, origin: 'manual' },
+    { id: 'send', text: '发送归档', archived: true, archivedAt, origin: 'send' },
+    { id: 'compose', text: '自动保存', archived: true, archivedAt, origin: 'compose' },
+    { id: 'active', text: '活动分段', origin: 'compose' },
+    { id: 'unknown', text: '未知来源', archived: true, archivedAt, origin: 'elsewhere' },
+  ]);
+  assert.deepEqual(written.segments.map((segment) => segment.origin), [
+    'manual',
+    'send',
+    'compose',
+    null,
+    null,
+  ]);
+
+  const raw = JSON.parse(await readFile(notePath(root), 'utf8'));
+  assert.equal(raw.segments[0].origin, 'manual');
+  assert.equal(raw.segments[1].origin, 'send');
+  assert.equal(raw.segments[2].origin, 'compose');
+  assert.equal(raw.segments[3].origin, undefined, 'active segments never persist an origin');
+  assert.equal(raw.segments[4].origin, undefined, 'unknown origins are dropped');
+
+  const note = await readNote(root);
+  assert.deepEqual(note.segments, written.segments);
+
+  await mkdir(path.join(root, NOTE_DIR), { recursive: true });
+  await writeFile(notePath(root), JSON.stringify({
+    version: NOTE_VERSION,
+    segments: [
+      { id: 'legacy', text: '旧归档', archived: true },
+      { id: 'bad', text: '坏来源', archived: true, origin: 42 },
+    ],
+  }), 'utf8');
+  const readBack = await readNote(root);
+  assert.deepEqual(readBack.segments.map((segment) => segment.origin), [null, null],
+    'legacy and malformed origins fall back to the expanded default');
+});
+
 test('image references round-trip and render as Markdown in the body', async (t) => {
   const root = await workspace(t);
   const written = await writeNote(root, [
