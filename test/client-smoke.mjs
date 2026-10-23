@@ -1171,10 +1171,17 @@ assert.equal(findAllByClass(afterMerge.seen, 'dsh-np-title-input')[0].element.pr
 
 const optimizeOne = findAllByTitle(afterMerge.seen, 'AI 优化此段')[1];
 assert.ok(optimizeOne, 'each card exposes an AI optimize button');
+const aiTextarea = textareas(afterMerge.seen)[1];
+const aiGrowNode = { style: {}, scrollHeight: 400 };
+aiTextarea.element.props.ref(aiGrowNode);
 await optimizeOne.element.props.onClick();
 const afterOptimizeOne = await renderRounds(3);
 assert.equal(optimizeRequests.at(-1).text, 'A\n\nB', 'the AI request carries the card text');
 assert.equal(optimizeRequests.at(-1).title, '合并标题', 'the AI request carries the card title');
+assert.equal(aiGrowNode.style.height, '240px',
+  'a taller AI result re-measures and grows the textarea to its limit');
+assert.equal(aiGrowNode.style.overflowY, 'auto',
+  'a taller AI result enables the textarea scrollbar at the limit');
 assert.deepEqual(
   textareas(afterOptimizeOne.seen).map(({ element }) => element.props.value),
   ['段改', '优化：A\n\nB'],
@@ -1889,6 +1896,42 @@ await pressButton(archivedView.seen, '显示归档');
 await renderRounds(2);
 await new Promise((resolve) => setTimeout(resolve, 100));
 assert.ok(archiveScrollCalls > 0, 'opening the archive scrolls to the newest archived card');
+
+// Backspace deleting the last active card must preserve the archive.
+let wipeView = await renderRounds(2);
+let wipeActive = textareas(wipeView.seen).length;
+if (wipeActive > 0) {
+  const selectAllForWipe = wipeView.seen.find(({ element }) => element.type === 'input'
+    && element.props.type === 'checkbox' && element.props['aria-label'] === '全选');
+  assert.ok(selectAllForWipe, 'select-all is available before the archive-preserving test');
+  selectAllForWipe.element.props.onChange({ target: { checked: true } });
+  wipeView = await renderRounds(2);
+  await pressButton(wipeView.seen, `归档选中的 ${wipeActive} 段`);
+  await settleLeave();
+  wipeView = await renderRounds(2);
+}
+assert.equal(textareas(wipeView.seen).length, 0, 'all active cards are archived before the test');
+await pressButton(wipeView.seen, '新建分段');
+const wipeAdded = await renderRounds(2);
+assert.equal(textareas(wipeAdded.seen).length, 1, 'a fresh empty active card is created');
+const archivedBeforeBackspace = archivedCards(wipeAdded.seen).length;
+assert.ok(archivedBeforeBackspace > 0, 'the archive still has cards before Backspace');
+textareas(wipeAdded.seen)[0].element.props.onKeyDown({
+  key: 'Backspace',
+  shiftKey: false,
+  ctrlKey: false,
+  metaKey: false,
+  altKey: false,
+  isComposing: false,
+  preventDefault() {},
+  currentTarget: { value: '', selectionStart: 0, selectionEnd: 0 },
+});
+await settleLeave();
+const afterWipeBackspace = await renderRounds(2);
+assert.equal(archivedCards(afterWipeBackspace.seen).length, archivedBeforeBackspace,
+  'Backspace deleting the last active card keeps every archived segment');
+assert.equal(textareas(afterWipeBackspace.seen).length, 1,
+  'a fresh empty card replaces the deleted last active card');
 
 // Capture the live panel geometry as the new default.
 settingsView = renderSettings();

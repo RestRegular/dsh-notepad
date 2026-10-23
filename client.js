@@ -2276,6 +2276,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const uiRef = useRef(ui);
       const textSelectionRef = useRef(null);
       const pendingSelectionRef = useRef(null);
+      const growAllRef = useRef(false);
       const historyRef = useRef({ entries: [], index: 0 });
       const historyRootRef = useRef('');
       const historyApplyingRef = useRef(false);
@@ -2533,6 +2534,14 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         for (const element of textareaRefs.current.values()) growTextarea(element);
       }, [settings.maxSegmentHeight, settings.fontSize, settings.font]);
 
+      // Programmatic text changes (AI rewrite, undo/redo, split) bypass the
+      // textarea onChange handler, so measure them again after the commit.
+      useEffect(() => {
+        if (!growAllRef.current) return;
+        growAllRef.current = false;
+        for (const element of textareaRefs.current.values()) growTextarea(element);
+      }, [segments]);
+
       // Apply a pending text selection after an AI rewrite commits ------
       useEffect(() => {
         const pending = pendingSelectionRef.current;
@@ -2709,6 +2718,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const before = segmentsRef.current;
         invalidateBatchUndo();
         segmentsRef.current = next;
+        growAllRef.current = true;
         setSegments(next);
         pruneSelectionFor(next);
         if (options.focus !== undefined) pendingFocusRef.current = options.focus;
@@ -2788,6 +2798,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               let value = readServerSegments(data);
               if (value.length === 0) value = [newSegment('')];
               segmentsRef.current = value;
+              growAllRef.current = true;
               setSegments(value);
               setSelection(new Set());
               setSegmentUndo(new Map());
@@ -3096,6 +3107,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               if (incoming.length === 0) incoming = [newSegment('')];
               const value = mergeServerOrder(segmentsRef.current, incoming);
               segmentsRef.current = value;
+              growAllRef.current = true;
               setSegments(value);
               pruneSelectionFor(value);
               setSegmentUndo(new Map());
@@ -4403,7 +4415,9 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           const activeRemaining = remaining.filter((segment) => segment.archived !== true);
           if (activeRemaining.length === 0) {
             const fresh = newSegment('');
-            commitSegments([fresh], { focus: { id: fresh.id, caret: 0 } });
+            // Keep archived cards: deleting the last active card used to write
+            // [fresh] and silently wipe the whole archive.
+            commitSegments([...remaining, fresh], { focus: { id: fresh.id, caret: 0 } });
             return;
           }
           const focus = previous ?? next;
