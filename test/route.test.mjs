@@ -51,6 +51,22 @@ function fakeLlm(output) {
   };
 }
 
+/** Fake LLM that counts how often a model call is actually prepared. */
+function countingLlm(output) {
+  const inner = fakeLlm(output);
+  const state = { calls: 0 };
+  return {
+    state,
+    llm: {
+      resolveCallConfig: (config) => inner.resolveCallConfig(config),
+      async prepareCall(base) {
+        state.calls += 1;
+        return inner.prepareCall(base);
+      },
+    },
+  };
+}
+
 async function serve(t, ctx) {
   const server = createServer((req, res) => {
     handleRequest(ctx, req, res).catch((error) => {
@@ -353,6 +369,35 @@ test('POST optimize rewrites one segment with the default model', async (t) => {
   const body = await response.json();
   assert.equal(body.ok, true);
   assert.equal(body.text, '优化后的内容');
+});
+
+test('POST optimize reuses the answer for unchanged content', async (t) => {
+  const root = await tempDir(t);
+  const counting = countingLlm('缓存的优化结果');
+  const base = await serve(t, fakeContext({
+    workspaces: [{ id: 'ws', path: root }],
+    llm: counting.llm,
+    selection: { provider: 'deepseek', model: 'deepseek-chat' },
+  }));
+  const request = () => fetch(`${base}/dsh-notepad/api/optimize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      root,
+      sessionId: 's1',
+      title: '同一个标题',
+      text: '内容完全没变',
+    }),
+  });
+  const first = await (await request()).json();
+  assert.equal(first.ok, true);
+  assert.equal(first.text, '缓存的优化结果');
+  assert.equal(first.cached, false);
+  const second = await (await request()).json();
+  assert.equal(second.ok, true);
+  assert.equal(second.text, '缓存的优化结果');
+  assert.equal(second.cached, true, 'the second request is answered from the cache');
+  assert.equal(counting.state.calls, 1, 'the model is called exactly once');
 });
 
 test('POST optimize reports a missing model as unavailable', async (t) => {

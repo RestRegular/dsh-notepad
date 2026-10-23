@@ -38,7 +38,7 @@ import {
 const ROUTE = '/dsh-notepad/api';
 
 /** Plugin version mirrored in package.json. */
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 
 /** Request body cap for note writes. */
 const BODY_LIMIT = 1024 * 1024;
@@ -54,6 +54,12 @@ const OPTIMIZE_TIMEOUT_MS = 120_000;
 
 /** Default output cap for one optimized segment. */
 const OPTIMIZE_MAX_TOKENS = 4096;
+
+/** Entries kept in the in-process optimizer cache. */
+const OPTIMIZE_CACHE_LIMIT = 64;
+
+/** Maximum key + value characters kept in the optimizer cache. */
+const OPTIMIZE_CACHE_CHARS = 2_000_000;
 
 /** Shared instruction for the optional writing assistant. */
 const OPTIMIZE_SYSTEM = [
@@ -236,6 +242,41 @@ function cleanOptimizedText(value) {
   const fenced = /^```[^\n]*\r?\n([\s\S]*?)\r?\n```$/u.exec(text);
   if (fenced !== null) text = fenced[1].trim();
   return text;
+}
+
+/**
+ * Results of earlier optimizer calls. Re-optimizing content that has not
+ * changed returns the previous answer instead of billing another model call.
+ * The cache is per host process and bounded by entry count and characters.
+ * @type {Map<string, string>}
+ */
+const optimizeCache = new Map();
+let optimizeCacheChars = 0;
+
+/**
+ * @param {string} key
+ * @param {string} text
+ */
+function cacheOptimizedText(key, text) {
+  const previous = optimizeCache.get(key);
+  if (previous !== undefined) {
+    optimizeCacheChars -= key.length + previous.length;
+    optimizeCache.delete(key);
+  }
+  optimizeCache.set(key, text);
+  optimizeCacheChars += key.length + text.length;
+  while (optimizeCache.size > OPTIMIZE_CACHE_LIMIT || optimizeCacheChars > OPTIMIZE_CACHE_CHARS) {
+    const oldest = optimizeCache.keys().next();
+    if (oldest.done === true) break;
+    const value = optimizeCache.get(oldest.value) ?? '';
+    optimizeCacheChars -= oldest.value.length + value.length;
+    optimizeCache.delete(oldest.value);
+  }
+}
+
+/** Workspace + title + text: everything the optimizer prompt depends on. */
+function optimizeCacheKey(root, title, text) {
+  return `${root}\u0000${title}\u0000${text}`;
 }
 
 /**
@@ -425,8 +466,16 @@ async function dispatchRequest(ctx, req, res) {
         `Segment is too large to optimize (${text.length} characters; limit ${MAX_OPTIMIZE_CHARS}).`,
       );
     }
-    const optimized = await optimizeText(ctx, text, typeof body.title === 'string' ? body.title : '');
-    sendJson(res, { ok: true, root, text: optimized });
+    const title = typeof body.title === 'string' ? body.title : '';
+    const cacheKey = optimizeCacheKey(root, title, text);
+    const cached = optimizeCache.get(cacheKey);
+    if (typeof cached === 'string' && cached !== '') {
+      sendJson(res, { ok: true, root, text: cached, cached: true });
+      return;
+    }
+    const optimized = await optimizeText(ctx, text, title);
+    cacheOptimizedText(cacheKey, optimized);
+    sendJson(res, { ok: true, root, text: optimized, cached: false });
     return;
   }
   if (action !== 'note') {

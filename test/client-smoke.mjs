@@ -73,6 +73,9 @@ const React = {
       inst.pending.push({ key, fn });
     }
   },
+  useLayoutEffect(fn, deps) {
+    return React.useEffect(fn, deps);
+  },
 };
 
 function sameDeps(a, b) {
@@ -163,6 +166,11 @@ const documentShim = {
   body: { appendChild() {}, removeChild() {} },
   activeElement: null,
   visibilityState: 'visible',
+  documentElement: {
+    attributes: { 'data-windows-titlebar': '' },
+    hasAttribute(name) { return Object.prototype.hasOwnProperty.call(this.attributes, name); },
+    getAttribute(name) { return this.attributes[name] ?? null; },
+  },
   createElement(tag) {
     return {
       tagName: String(tag).toUpperCase(),
@@ -208,6 +216,14 @@ const windowShim = {
   },
   addEventListener: addListener,
   removeEventListener: removeListener,
+  getComputedStyle() {
+    const values = {
+      '--dsh-frame-chrome-top': '32px',
+      '--dsh-frame-top-clearance': '32px',
+      '--dsh-windows-titlebar-height': '32px',
+    };
+    return { getPropertyValue(name) { return values[name] ?? ''; } };
+  },
 };
 
 const loadedModules = [];
@@ -481,6 +497,8 @@ assert.ok(!styleTags[0].textContent.includes('ui-monospace'), 'no monospace font
 assert.ok(styleTags[0].textContent.includes('body[data-ds-dark-theme]'), 'dark-mode overrides exist');
 assert.ok(styleTags[0].textContent.includes('transition:height'), 'collapse animation exists');
 assert.ok(styleTags[0].textContent.includes('visibility:hidden'), 'hide animation exists');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-title-add'), 'empty titles use a placeholder button');
+assert.ok(!styleTags[0].textContent.includes('.dsh-np-title-add:hover'), 'the empty-title placeholder has no hover style');
 assert.deepEqual(localeRegistered.map((entry) => entry.namespace), ['dsh-notepad']);
 const overlay = registrations.find((entry) => entry.options.name === 'shell.overlay');
 assert.ok(overlay, 'registers shell.overlay');
@@ -551,6 +569,18 @@ assert.ok(initial.text.includes('已保存'), 'status shows saved');
 assert.equal(sidebarRows[0].attributes['data-np-unsent'], '2', 'the current workspace row shows its pending count');
 assert.equal(sidebarRows[1].attributes['data-np-unsent'], '2', 'other workspace rows keep their own counts');
 assert.ok(unsentRequests.length > 0, 'sidebar counts are fetched');
+
+// Auto refresh keeps the list scroll position -----------------------------
+const listRefProp = findByClass(initial.seen, 'dsh-np-list')?.element.props.ref;
+assert.ok(listRefProp, 'the scrollable list exposes a ref');
+const listNode = { scrollTop: 42 };
+listRefProp.current = listNode;
+storedMtime += 1;
+for (const listener of [...(listeners.get('focus') ?? [])]) listener({});
+listNode.scrollTop = 0;
+await new Promise((resolve) => setTimeout(resolve, 40));
+await renderRounds(1);
+assert.equal(listNode.scrollTop, 42, 'auto refresh restores the list scroll position');
 
 // Edit + autosave ---------------------------------------------------------
 const firstTextarea = textareas(initial.seen)[0];
@@ -856,10 +886,56 @@ secondNew.element.props.onChange({ target: { value: 'B' } });
 const afterAB = await renderRounds(1);
 assert.deepEqual(textareas(afterAB.seen).map(({ element }) => element.props.value), ['A', 'B', '第一']);
 
-const titleInputs = findAllByClass(afterAB.seen, 'dsh-np-title-input');
-assert.equal(titleInputs.length, 3, 'each active card exposes a title input');
-titleInputs[0].element.props.onChange({ target: { value: '合并标题' } });
+// Arrow keys move the caret between cards ---------------------------------
+const arrowAreas = textareas(afterAB.seen);
+const arrowNodes = arrowAreas.map(({ element }) => ({
+  value: element.props.value,
+  selectionStart: 0,
+  selectionEnd: 0,
+  focused: false,
+  caret: -1,
+  focus() { this.focused = true; },
+  setSelectionRange(position) { this.caret = position; },
+  scrollIntoView() {},
+}));
+arrowAreas.forEach(({ element }, index) => element.props.ref(arrowNodes[index]));
+arrowAreas[0].element.props.onKeyDown({
+  key: 'ArrowDown',
+  shiftKey: false,
+  ctrlKey: false,
+  metaKey: false,
+  altKey: false,
+  isComposing: false,
+  preventDefault() {},
+  currentTarget: arrowNodes[0],
+});
+assert.equal(arrowNodes[1].focused, true, 'ArrowDown focuses the next card');
+assert.equal(arrowNodes[1].caret, 0, 'ArrowDown puts the caret at the start of the next card');
+arrowAreas[1].element.props.onKeyDown({
+  key: 'ArrowUp',
+  shiftKey: false,
+  ctrlKey: false,
+  metaKey: false,
+  altKey: false,
+  isComposing: false,
+  preventDefault() {},
+  currentTarget: arrowNodes[1],
+});
+assert.equal(arrowNodes[0].focused, true, 'ArrowUp focuses the previous card');
+assert.equal(arrowNodes[0].caret, 1, 'ArrowUp puts the caret at the end of the previous card');
+
+const titleInputsBefore = findAllByClass(afterAB.seen, 'dsh-np-title-input');
+const titleAdds = findAllByClass(afterAB.seen, 'dsh-np-title-add');
+assert.equal(titleInputsBefore.length, 0, 'empty titles do not render an input');
+assert.equal(titleAdds.length, 3, 'each empty title exposes a clickable placeholder');
+titleAdds[0].element.props.onClick();
+const afterTitleClick = await renderRounds(1);
+const revealedTitleInputs = findAllByClass(afterTitleClick.seen, 'dsh-np-title-input');
+assert.equal(revealedTitleInputs.length, 1, 'clicking the placeholder reveals the title input');
+assert.equal(revealedTitleInputs[0].element.props.autoFocus, true, 'the revealed title input is focused');
+revealedTitleInputs[0].element.props.onChange({ target: { value: '合并标题' } });
 const afterTitle = await renderRounds(1);
+assert.equal(findAllByClass(afterTitle.seen, 'dsh-np-title-input')[0].element.props.value, '合并标题');
 
 const indexes = findAllByClass(afterTitle.seen, 'dsh-np-index');
 assert.equal(indexes.length, 3, 'each card exposes a clickable index');
@@ -892,22 +968,65 @@ assert.deepEqual(
   ['优化：A\n\nB', '第一'],
   'single-card AI optimization replaces only that card',
 );
-
-const optimizeAllButton = findByTitle(afterOptimizeOne.seen, 'AI 优化全部分段');
-assert.ok(optimizeAllButton, 'the batch toolbar exposes AI optimize all');
-const optimizeCountBefore = optimizeRequests.length;
-await optimizeAllButton.element.props.onClick();
-const afterOptimizeAll = await renderRounds(5);
-assert.equal(optimizeRequests.length - optimizeCountBefore, 2, 'optimize all visits every non-empty active card');
+const undoOptimizeOne = findByTitle(afterOptimizeOne.seen, '撤销优化');
+assert.ok(undoOptimizeOne, 'the optimized card button turns into undo');
+await undoOptimizeOne.element.props.onClick();
+const afterUndoOptimizeOne = await renderRounds(2);
 assert.deepEqual(
-  textareas(afterOptimizeAll.seen).map(({ element }) => element.props.value),
-  ['优化：优化：A\n\nB', '优化：第一'],
-  'optimize all rewrites each card in place',
+  textareas(afterUndoOptimizeOne.seen).map(({ element }) => element.props.value),
+  ['A\n\nB', '第一'],
+  'undoing the card optimization restores its text',
+);
+assert.equal(findAllByTitle(afterUndoOptimizeOne.seen, '撤销优化').length, 0,
+  'the undo button returns to AI optimize after use');
+
+const optimizeCountBefore = optimizeRequests.length;
+const optimizeAgain = findAllByTitle(afterUndoOptimizeOne.seen, 'AI 优化此段')[0];
+await optimizeAgain.element.props.onClick();
+const afterOptimizeAgain = await renderRounds(2);
+assert.equal(optimizeRequests.length, optimizeCountBefore,
+  'unchanged content is optimized from the cache without another model call');
+assert.deepEqual(
+  textareas(afterOptimizeAgain.seen).map(({ element }) => element.props.value),
+  ['优化：A\n\nB', '第一'],
+  'the cached answer is applied again',
 );
 
-const beforeReorder = findAllByClass(afterOptimizeAll.seen, 'dsh-np-index');
+// Batch optimize only visits the selected cards ----------------------------
+const selectAllForAi = afterOptimizeAgain.seen.find(({ element }) => element.type === 'input'
+  && element.props.type === 'checkbox'
+  && element.props['aria-label'] === '全选');
+assert.ok(selectAllForAi, 'select-all is available for batch optimization');
+selectAllForAi.element.props.onChange({ target: { checked: true } });
+const afterSelectForAi = await renderRounds(2);
+const optimizeSelectedButton = findByTitle(afterSelectForAi.seen, 'AI 优化选中的 2 段');
+assert.ok(optimizeSelectedButton, 'the toolbar only offers to optimize the selection');
+const selectedOptimizeBefore = optimizeRequests.length;
+await optimizeSelectedButton.element.props.onClick();
+const afterOptimizeSelected = await renderRounds(5);
+assert.equal(optimizeRequests.length - selectedOptimizeBefore, 2,
+  'batch optimization visits every selected card, cache only skipping exact repeats');
+assert.deepEqual(
+  textareas(afterOptimizeSelected.seen).map(({ element }) => element.props.value),
+  ['优化：优化：A\n\nB', '优化：第一'],
+  'batch optimization rewrites only the selected cards',
+);
+const toolbarUndo = afterOptimizeSelected.seen.find(({ element }) => element.type === 'button'
+  && element.props.className === 'dsh-np-btn' && element.props.title === '撤销优化');
+assert.ok(toolbarUndo, 'the toolbar AI button turns into undo after a batch run');
+await toolbarUndo.element.props.onClick();
+const afterBatchUndo = await renderRounds(2);
+assert.deepEqual(
+  textareas(afterBatchUndo.seen).map(({ element }) => element.props.value),
+  ['优化：A\n\nB', '第一'],
+  'the toolbar undo restores every batch-edited card',
+);
+assert.equal(findAllByTitle(afterBatchUndo.seen, '撤销优化').length, 0,
+  'the batch undo offer clears after use');
+
+const beforeReorder = findAllByClass(afterBatchUndo.seen, 'dsh-np-index');
 beforeReorder[0].element.props.onDragStart({ dataTransfer: { setData() {}, effectAllowed: 'move' } });
-const activeArticles = afterOptimizeAll.seen.filter(({ element }) =>
+const activeArticles = afterBatchUndo.seen.filter(({ element }) =>
   element.type === 'article' && element.props['data-archived'] === 'false');
 assert.equal(activeArticles.length, 2, 'two active cards remain');
 const dragOver = {
@@ -926,7 +1045,7 @@ dragArticles[1].element.props.onDrop({ dataTransfer: { types: [] }, preventDefau
 const afterReorder = await renderRounds(2);
 assert.deepEqual(
   textareas(afterReorder.seen).map(({ element }) => element.props.value),
-  ['优化：第一', '优化：优化：A\n\nB'],
+  ['第一', '优化：A\n\nB'],
   'dragging a card updates the display order',
 );
 assert.equal(sidebarRows[0].attributes['data-np-unsent'], '2', 'workspace badge follows the live pending count');
@@ -936,7 +1055,7 @@ const afterFeatureSave = await renderRounds(1);
 const featurePut = JSON.parse(requests.filter((request) => request.method === 'PUT').at(-1).body);
 const titled = featurePut.segments.find((segment) => segment.title === '合并标题');
 assert.ok(titled, 'card titles autosave');
-assert.equal(titled.text, '优化：优化：A\n\nB', 'optimized text autosaves');
+assert.equal(titled.text, '优化：A\n\nB', 'optimized text autosaves');
 
 // Global hotkey ----------------------------------------------------------
 const keydown = listeners.get('keydown');
@@ -958,12 +1077,50 @@ const hotkeyShown = await renderRounds(2);
 const hotkeyShownCard = hotkeyShown.seen.find(({ element }) => element.type === 'section' && element.props['data-dsh-notepad'] === 'true');
 assert.equal(hotkeyShownCard.element.props['data-hidden'], 'false', 'hotkey shows the card again');
 
+// Host title bar clamp + reset hotkey -------------------------------------
+const headerNode = findByClass(hotkeyShown.seen, 'dsh-np-head');
+assert.ok(headerNode, 'the drag header is rendered');
+headerNode.element.props.onPointerDown({
+  button: 0,
+  clientX: 120,
+  clientY: 400,
+  target: null,
+  preventDefault() {},
+});
+for (const listener of [...(listeners.get('pointermove') ?? [])]) {
+  listener({ clientX: 120, clientY: -800 });
+}
+await renderRounds(2);
+for (const listener of [...(listeners.get('pointerup') ?? [])]) listener({});
+await renderRounds(2);
+const draggedUi = JSON.parse(storage.get('dsh-notepad.ui.v1'));
+assert.ok(draggedUi.y >= 40, 'the floating card cannot be dragged above the host title bar');
+
+for (const listener of [...keydown]) {
+  listener({
+    key: '0',
+    code: 'Digit0',
+    ctrlKey: true,
+    metaKey: false,
+    shiftKey: true,
+    altKey: false,
+    preventDefault() {},
+  });
+}
+const afterReset = await renderRounds(2);
+const resetUi = JSON.parse(storage.get('dsh-notepad.ui.v1'));
+assert.equal(resetUi.width, 420, 'reset restores the default width');
+assert.equal(resetUi.height, 460, 'reset restores the default height');
+assert.equal(resetUi.x, 1280 - 420 - 24, 'reset parks the card at its default left');
+assert.equal(resetUi.y, 800 - 460 - 24, 'reset parks the card at its default bottom');
+assert.ok(afterReset.text.includes('已复位浮窗位置和尺寸'), 'reset shows feedback');
+
 // UI persistence ---------------------------------------------------------
 const storedUi = JSON.parse(storage.get('dsh-notepad.ui.v1'));
 assert.equal(typeof storedUi.x, 'number');
 assert.equal(typeof storedUi.y, 'number');
-assert.equal(storedUi.width, storedAfterResize.width);
-assert.equal(storedUi.height, storedAfterResize.height);
+assert.equal(storedUi.width, 420);
+assert.equal(storedUi.height, 460);
 assert.equal(storedUi.hidden, false);
 assert.equal(storedUi.minimized, false);
 assert.equal(storedUi.showArchive, true);

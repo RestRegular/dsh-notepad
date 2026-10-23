@@ -37,7 +37,7 @@ window.__ModuleLoader__.load({
   factory: (require) => {
     const React = require('react');
     const h = React.createElement;
-    const { useState, useEffect, useRef } = React;
+    const { useState, useEffect, useLayoutEffect, useRef } = React;
 
     const NS = 'dsh-notepad';
     const API = '/dsh-notepad/api';
@@ -56,6 +56,8 @@ window.__ModuleLoader__.load({
     const MAX_OPTIMIZE_CHARS = 60000;
     const SIDEBAR_REFRESH_MS = 20000;
     const IMAGE_DELETE_DELAY = 5000;
+    const OPTIMIZE_CACHE_LIMIT = 100;
+    const EDGE_GAP = 8;
     const IMAGE_MIME = {
       'image/png': 'png',
       'image/jpeg': 'jpg',
@@ -114,11 +116,14 @@ window.__ModuleLoader__.load({
         mergeHint: '至少选择 2 段才能合并',
         mergedToast: '已合并 {n} 段',
         optimizeSegment: 'AI 优化此段',
-        optimizeAll: 'AI 优化全部分段',
+        optimizeSelected: 'AI 优化选中的 {n} 段',
+        optimizeSelectHint: '勾选分段后可批量优化',
         optimizeAllProgress: 'AI 优化中 {done}/{total}',
         optimizing: '优化中…',
+        undoOptimize: '撤销优化',
         optimizedToast: '已优化此段',
         optimizedCount: '已优化 {n} 段',
+        optimizeUndone: '已撤销优化',
         optimizeEmpty: '没有可优化的文字',
         optimizeTooLong: '内容太长，无法优化',
         optimizeUnavailable: 'AI 服务不可用',
@@ -155,9 +160,10 @@ window.__ModuleLoader__.load({
         show: '显示记事本（Ctrl+Shift+N）',
         chars: '{n} 字符',
         segments: '{n} 段',
-        hint: 'Enter 新建分段 · Shift+Enter 换行 · Ctrl+Enter 插入 · 支持粘贴图片',
+        hint: 'Enter 新建分段 · Shift+Enter 换行 · Ctrl+Enter 插入 · Ctrl+Shift+0 复位浮窗 · 支持粘贴图片',
         workspace: '工作区',
         resize: '拖动调整大小',
+        uiReset: '已复位浮窗位置和尺寸',
         addImage: '添加图片',
         removeImage: '移除图片',
         openImage: '打开图片',
@@ -218,11 +224,14 @@ window.__ModuleLoader__.load({
         mergeHint: 'Select at least 2 segments to merge',
         mergedToast: 'Merged {n} segments',
         optimizeSegment: 'Improve this segment with AI',
-        optimizeAll: 'Improve all segments with AI',
+        optimizeSelected: 'Improve {n} selected with AI',
+        optimizeSelectHint: 'Select segments to improve',
         optimizeAllProgress: 'Improving {done}/{total}',
         optimizing: 'Improving…',
+        undoOptimize: 'Undo improvement',
         optimizedToast: 'Segment improved',
         optimizedCount: 'Improved {n} segments',
+        optimizeUndone: 'Improvement undone',
         optimizeEmpty: 'Nothing to improve',
         optimizeTooLong: 'Too long to improve',
         optimizeUnavailable: 'AI service unavailable',
@@ -259,9 +268,10 @@ window.__ModuleLoader__.load({
         show: 'Show notepad (Ctrl+Shift+N)',
         chars: '{n} chars',
         segments: '{n} segments',
-        hint: 'Enter new segment · Shift+Enter newline · Ctrl+Enter insert · Paste images',
+        hint: 'Enter new segment · Shift+Enter newline · Ctrl+Enter insert · Ctrl+Shift+0 reset window · Paste images',
         workspace: 'Workspace',
         resize: 'Drag to resize',
+        uiReset: 'Window position and size reset',
         addImage: 'Add image',
         removeImage: 'Remove image',
         openImage: 'Open image',
@@ -548,6 +558,24 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** Curved arrow: undo the last AI improvement. */
+    function UndoIcon({ size = 16 }) {
+      return h(
+        Svg,
+        { size, viewBox: '0 0 16 16' },
+        h('path', {
+          d: 'M5.4 4.2 2.8 6.8l2.6 2.6',
+          stroke: 'currentColor', strokeWidth: 1.35,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }),
+        h('path', {
+          d: 'M3 6.8h5.3c2.7 0 4.9 2.2 4.9 4.9',
+          stroke: 'currentColor', strokeWidth: 1.35,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }),
+      );
+    }
+
     /** Two arrows converging: merge selected segments into one. */
     function MergeIcon({ size = 16 }) {
       return h(
@@ -608,7 +636,7 @@ window.__ModuleLoader__.load({
 .dsh-np-btn[data-accent=true]{background:var(--np-accent);color:var(--np-accent-fg)}
 .dsh-np-btn[data-accent=true]:hover:not(:disabled){background:color-mix(in srgb,var(--np-accent) 88%,#000);color:var(--np-accent-fg)}
 .dsh-np-btn:disabled{opacity:.38;cursor:default;background:transparent;color:var(--dsw-alias-label-tertiary,#6b7280)}
-.dsh-np-btn:focus-visible,.dsh-np-segbtn:focus-visible,.dsh-np-link:focus-visible,.dsh-np-empty-add:focus-visible,.dsh-np-toast-action:focus-visible,.dsh-np-selectall input:focus-visible,.dsh-np-check input:focus-visible,.dsh-np-restore:focus-visible,.dsh-np-img-open:focus-visible,.dsh-np-img-remove:focus-visible{outline:2px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#4176e6));outline-offset:-2px}
+.dsh-np-btn:focus-visible,.dsh-np-segbtn:focus-visible,.dsh-np-link:focus-visible,.dsh-np-empty-add:focus-visible,.dsh-np-toast-action:focus-visible,.dsh-np-selectall input:focus-visible,.dsh-np-check input:focus-visible,.dsh-np-title-add:focus-visible,.dsh-np-restore:focus-visible,.dsh-np-img-open:focus-visible,.dsh-np-img-remove:focus-visible{outline:2px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#4176e6));outline-offset:-2px}
 .dsh-np-body{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;padding:8px 10px 0;opacity:1;transition:opacity .16s ease,visibility 0s linear 0s}
 .dsh-np-card[data-minimized=true] .dsh-np-body{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .16s ease,visibility 0s linear .16s}
 .dsh-np-tools{display:flex;align-items:center;flex-wrap:wrap;gap:4px;flex:none;padding:0 2px 7px;border-bottom:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08))}
@@ -633,6 +661,7 @@ window.__ModuleLoader__.load({
 .dsh-np-title-input::placeholder{color:var(--dsw-alias-label-caption,#9aa3b2);font-weight:400}
 .dsh-np-title-input:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06))}
 .dsh-np-title-input:focus{background:var(--np-surface);box-shadow:0 0 0 1px var(--np-accent) inset;color:var(--dsw-alias-label-primary,#1f2430)}
+.dsh-np-title-add{flex:1 1 auto;min-width:0;width:0;height:20px;padding:0 4px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-caption,#9aa3b2);font:inherit;font-size:11px;font-weight:400;line-height:20px;text-align:left;cursor:text;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.75}
 .dsh-np-seg-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#4b5563);font-size:11px;font-weight:600}
 .dsh-np-archived-chip{flex:none;padding:0 6px;border-radius:5px;background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));color:var(--dsw-alias-label-tertiary,#6b7280);font-size:10px;line-height:16px}
 .dsh-np-segbtn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary,#6b7280);cursor:pointer;transition:background .12s,color .12s,opacity .12s;opacity:.8}
@@ -1032,6 +1061,43 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       return parts.length === 0 ? String(root ?? '') : parts[parts.length - 1];
     }
 
+    /**
+     * Height of the chrome the host draws over the page (the Windows title bar
+     * with maximize / minimize / close, or the macOS traffic lights). The
+     * floating card must never move above that strip. The host exposes it as a
+     * CSS variable on <html>; standalone browsers have none, so this is 0.
+     * @returns {number}
+     */
+    function hostChromeTop() {
+      try {
+        const root = typeof document !== 'undefined' ? document.documentElement : null;
+        if (root === null || root === undefined) return 0;
+        const hasAttribute = (name) => typeof root.hasAttribute === 'function' && root.hasAttribute(name);
+        const readVar = (name) => {
+          try {
+            if (typeof window === 'undefined' || typeof window.getComputedStyle !== 'function') return NaN;
+            const style = window.getComputedStyle(root);
+            return Number.parseFloat(style?.getPropertyValue(name) ?? '');
+          } catch {
+            return NaN;
+          }
+        };
+        // `--dsh-frame-chrome-top` is 0 while the host is in fullscreen.
+        const chrome = readVar('--dsh-frame-chrome-top');
+        if (Number.isFinite(chrome)) return Math.max(0, chrome);
+        const clearance = readVar('--dsh-frame-top-clearance');
+        if (Number.isFinite(clearance) && clearance > 0) return clearance;
+        if (hasAttribute('data-windows-titlebar')) {
+          const titlebar = readVar('--dsh-windows-titlebar-height');
+          return Number.isFinite(titlebar) && titlebar > 0 ? titlebar : 32;
+        }
+        const platform = typeof root.getAttribute === 'function' ? root.getAttribute('data-platform') : '';
+        return platform === 'darwin' ? 48 : 0;
+      } catch {
+        return 0;
+      }
+    }
+
     function readStoredUi() {
       const base = {
         x: null,
@@ -1064,17 +1130,18 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
     function clampUi(ui) {
       const vw = (typeof window !== 'undefined' && window.innerWidth) || 1280;
       const vh = (typeof window !== 'undefined' && window.innerHeight) || 800;
-      const widthLimit = Math.max(240, vw - 16);
-      const heightLimit = Math.max(180, vh - 16);
+      const minTop = hostChromeTop() + EDGE_GAP;
+      const widthLimit = Math.max(240, vw - EDGE_GAP * 2);
+      const heightLimit = Math.max(180, vh - minTop - EDGE_GAP);
       const width = Math.min(Math.max(MIN_W, Number(ui.width) || DEFAULT_W), widthLimit);
       const height = Math.min(Math.max(MIN_H, Number(ui.height) || DEFAULT_H), heightLimit);
       const displayHeight = ui.minimized ? HEAD_H : height;
       const x = ui.x === null || ui.x === undefined
-        ? vw - width - 24
-        : Math.min(Math.max(8, ui.x), Math.max(8, vw - width - 8));
+        ? Math.max(EDGE_GAP, vw - width - 24)
+        : Math.min(Math.max(EDGE_GAP, ui.x), Math.max(EDGE_GAP, vw - width - EDGE_GAP));
       const y = ui.y === null || ui.y === undefined
-        ? vh - displayHeight - 24
-        : Math.min(Math.max(8, ui.y), Math.max(8, vh - displayHeight - 8));
+        ? Math.max(minTop, vh - displayHeight - 24)
+        : Math.min(Math.max(minTop, ui.y), Math.max(minTop, vh - displayHeight - EDGE_GAP));
       return { ...ui, x, y, width, height };
     }
 
@@ -1201,7 +1268,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const [error, setError] = useState('');
       const [savedAt, setSavedAt] = useState(null);
       const [toast, setToast] = useState(null);
-      const [ui, setUi] = useState(readStoredUi);
+      const [ui, setUi] = useState(() => clampUi(readStoredUi()));
       const [sending, setSending] = useState(false);
       const [resizing, setResizing] = useState(false);
       const [uploading, setUploading] = useState({});
@@ -1209,7 +1276,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const [reorderDrag, setReorderDrag] = useState('');
       const [reorderOver, setReorderOver] = useState(null);
       const [optimizing, setOptimizing] = useState(() => new Set());
-      const [optimizeAll, setOptimizeAll] = useState(null);
+      const [optimizeBatch, setOptimizeBatch] = useState(null);
+      const [segmentUndo, setSegmentUndo] = useState(() => new Map());
+      const [batchUndo, setBatchUndo] = useState(null);
+      const [titleEditing, setTitleEditing] = useState('');
       const [wsCounts, setWsCounts] = useState({});
       const [currentWsId, setCurrentWsId] = useState('');
 
@@ -1235,9 +1305,13 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const fileInputRefs = useRef(new Map());
       const listRef = useRef(null);
       const pendingFocusRef = useRef(null);
+      const pendingScrollRef = useRef(null);
+      const refreshSeqRef = useRef(0);
       const undoRef = useRef(null);
       const optimizingRef = useRef(new Set());
-      const optimizeAllRef = useRef(false);
+      const optimizeBatchRef = useRef(false);
+      const optimizeCacheRef = useRef(new Map());
+      const batchUndoRef = useRef(null);
       const reorderDragRef = useRef('');
       const reorderOverRef = useRef(null);
       const imageDeleteTimersRef = useRef(new Map());
@@ -1257,6 +1331,17 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           else changed = true;
         }
         if (changed) setSelection(pruned);
+      };
+
+      /** Keep the ref and the state in sync for the batch-optimize undo slot. */
+      const setBatchUndoState = (value) => {
+        batchUndoRef.current = value;
+        setBatchUndo(value);
+      };
+
+      /** Any local edit invalidates the "undo the last batch" offer. */
+      const invalidateBatchUndo = () => {
+        if (batchUndoRef.current !== null) setBatchUndoState(null);
       };
 
       // Session + workspace -------------------------------------------------
@@ -1378,6 +1463,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       saveNowRef.current = saveNow;
 
       const commitSegments = (next, options = {}) => {
+        invalidateBatchUndo();
         segmentsRef.current = next;
         setSegments(next);
         pruneSelectionFor(next);
@@ -1396,6 +1482,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           segmentsRef.current = [];
           setSegments([]);
           setSelection(new Set());
+          setSegmentUndo(new Map());
+          setBatchUndoState(null);
+          setTitleEditing('');
+          pendingScrollRef.current = null;
           setStatus('idle');
           setError('');
           return undefined;
@@ -1412,6 +1502,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         segmentsRef.current = [];
         setSegments([]);
         setSelection(new Set());
+        setSegmentUndo(new Map());
+        setBatchUndoState(null);
+        setTitleEditing('');
+        pendingScrollRef.current = null;
         setStatus('loading');
         setError('');
         const load = () => {
@@ -1430,6 +1524,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               segmentsRef.current = value;
               setSegments(value);
               setSelection(new Set());
+              setSegmentUndo(new Map());
+              setBatchUndoState(null);
               versionRef.current = typeof data.mtimeMs === 'number' ? data.mtimeMs : null;
               setSavedAt(typeof data.mtimeMs === 'number' ? data.mtimeMs : null);
               dirtyRef.current = false;
@@ -1566,14 +1662,41 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         autoGrow(element);
       }, [segments]);
 
+      // Restore a captured scroll offset right after a refresh commits ------
+      useLayoutEffect(() => {
+        const pending = pendingScrollRef.current;
+        if (pending === null || pending === undefined) return;
+        pendingScrollRef.current = null;
+        const list = listRef.current;
+        if (list === null || list === undefined) return;
+        try {
+          list.scrollTop = pending;
+        } catch {
+          /* A detached list cannot be scrolled. */
+        }
+      }, [segments]);
+
       // Keyboard ------------------------------------------------------------
       useEffect(() => {
         const onKeyDown = (event) => {
           const chord = event.ctrlKey || event.metaKey;
-          if (!chord || !event.shiftKey) return;
-          if (event.key !== 'N' && event.key !== 'n') return;
-          event.preventDefault();
-          setUi((previous) => clampUi({ ...previous, hidden: !previous.hidden }));
+          if (!chord || !event.shiftKey || event.altKey) return;
+          if (event.key === 'N' || event.key === 'n') {
+            event.preventDefault();
+            setUi((previous) => clampUi({ ...previous, hidden: !previous.hidden }));
+            return;
+          }
+          if (event.key === '0' || event.code === 'Digit0' || event.code === 'Numpad0') {
+            event.preventDefault();
+            setUi((previous) => clampUi({
+              ...previous,
+              x: null,
+              y: null,
+              width: DEFAULT_W,
+              height: DEFAULT_H,
+            }));
+            showToast(t('uiReset'));
+          }
         };
         window.addEventListener('keydown', onKeyDown, true);
         return () => {
@@ -1616,10 +1739,25 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           const active = typeof document !== 'undefined' ? document.activeElement : null;
           if (active !== null && active !== undefined && typeof active.closest === 'function'
             && active.closest('[data-dsh-notepad="true"]') !== null) return;
+          // Snapshot the scroll offset right before the refresh; the list may
+          // re-render (and jump) while the updated note is applied.
+          const list = listRef.current;
+          const scrollTop = list !== null && list !== undefined && Number.isFinite(list.scrollTop)
+            ? list.scrollTop
+            : null;
+          const mySeq = ++refreshSeqRef.current;
+          pendingScrollRef.current = scrollTop;
           fetchNote(root, sessionId)
             .then((data) => {
-              if (rootRef.current !== root || dirtyRef.current) return;
-              if (typeof data.mtimeMs === 'number' && data.mtimeMs === versionRef.current) return;
+              if (mySeq !== refreshSeqRef.current) return;
+              if (rootRef.current !== root || dirtyRef.current) {
+                pendingScrollRef.current = null;
+                return;
+              }
+              if (typeof data.mtimeMs === 'number' && data.mtimeMs === versionRef.current) {
+                pendingScrollRef.current = null;
+                return;
+              }
               let incoming = normalizeServerSegments(data);
               if (isLegacyPayload(data)) incoming = incoming.slice().reverse();
               if (incoming.length === 0) incoming = [newSegment('')];
@@ -1627,11 +1765,15 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               segmentsRef.current = value;
               setSegments(value);
               pruneSelectionFor(value);
+              setSegmentUndo(new Map());
+              setBatchUndoState(null);
               versionRef.current = typeof data.mtimeMs === 'number' ? data.mtimeMs : null;
               setSavedAt(typeof data.mtimeMs === 'number' ? data.mtimeMs : null);
               setStatus('saved');
             })
-            .catch(() => {});
+            .catch(() => {
+              if (mySeq === refreshSeqRef.current) pendingScrollRef.current = null;
+            });
         };
         const onVisibility = () => {
           if (typeof document !== 'undefined' && document.visibilityState === 'visible') refresh();
@@ -1650,9 +1792,17 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
 
       // Segment mutations ---------------------------------------------------
       const updateSegmentText = (id, value) => {
+        invalidateBatchUndo();
         const next = segmentsRef.current.map((segment) => (segment.id === id ? { ...segment, text: value } : segment));
         segmentsRef.current = next;
         setSegments(next);
+        setSegmentUndo((previous) => {
+          const record = previous.get(id);
+          if (record === undefined || record.after === value) return previous;
+          const pruned = new Map(previous);
+          pruned.delete(id);
+          return pruned;
+        });
         dirtyRef.current = true;
         setStatus('dirty');
         setError('');
@@ -1663,6 +1813,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const title = String(value ?? '').slice(0, MAX_TITLE_CHARS);
         const target = segmentsRef.current.find((segment) => segment.id === id);
         if (target === undefined || target.title === title) return;
+        invalidateBatchUndo();
         const next = segmentsRef.current.map((segment) => (segment.id === id ? { ...segment, title } : segment));
         segmentsRef.current = next;
         setSegments(next);
@@ -1935,6 +2086,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         if (record === null || record === undefined) return;
         undoRef.current = null;
         clearPendingImageDeletes();
+        setSegmentUndo(new Map());
+        setBatchUndoState(null);
         commitSegments(record.snapshot);
         setToast(null);
       };
@@ -2084,14 +2237,33 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         setOptimizing(next);
       };
 
+      /** Cache key: the prompt depends on the workspace, title and card text. */
+      const optimizationCacheKey = (root, segment) =>
+        `${root}\u0000${segment.title ?? ''}\u0000${segment.text}`;
+
+      const rememberOptimization = (key, value) => {
+        const cache = optimizeCacheRef.current;
+        cache.delete(key);
+        cache.set(key, value);
+        while (cache.size > OPTIMIZE_CACHE_LIMIT) {
+          const oldest = cache.keys().next();
+          if (oldest.done === true) break;
+          cache.delete(oldest.value);
+        }
+      };
+
       const requestOptimization = async (segment) => {
         const root = rootRef.current;
         const sessionId = rootSessionRef.current;
         if (root === '' || sessionId === '') throw new Error(t('optimizeUnavailable'));
         if (segment.text.length > MAX_OPTIMIZE_CHARS) throw new Error(t('optimizeTooLong'));
+        const cacheKey = optimizationCacheKey(root, segment);
+        const cached = optimizeCacheRef.current.get(cacheKey);
+        if (typeof cached === 'string' && cached !== '') return cached;
         const data = await optimizeNoteText(root, sessionId, segment.text, segment.title ?? '');
         const value = typeof data.text === 'string' ? data.text.trim() : '';
         if (value === '') throw new Error(t('optimizeFailed'));
+        rememberOptimization(cacheKey, value);
         return value;
       };
 
@@ -2102,18 +2274,21 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           showToast(t('optimizeEmpty'));
           return;
         }
-        const snapshot = segmentsRef.current;
         const original = target.text;
         markOptimizing(id, true);
         try {
           const value = await requestOptimization(target);
           const current = segmentsRef.current.find((segment) => segment.id === id);
           if (current === undefined || current.text !== original || value === original) return;
-          undoRef.current = { snapshot };
           const next = segmentsRef.current.map((segment) =>
             (segment.id === id ? { ...segment, text: value } : segment));
           commitSegments(next);
-          showToast(t('optimizedToast'), { label: t('undo'), onClick: undoLast });
+          setSegmentUndo((previous) => {
+            const updated = new Map(previous);
+            updated.set(id, { before: original, after: value });
+            return updated;
+          });
+          showToast(t('optimizedToast'));
         } catch (reason) {
           const message = String(reason?.message ?? reason);
           showToast(message === t('optimizeTooLong') || message === t('optimizeUnavailable')
@@ -2124,20 +2299,46 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         }
       };
 
-      const optimizeAllSegments = async () => {
-        if (optimizeAllRef.current) return;
+      const undoOptimizeSegment = (id) => {
+        const record = segmentUndo.get(id);
+        const current = segmentsRef.current.find((segment) => segment.id === id);
+        if (record !== undefined && current !== undefined && current.text === record.after) {
+          const next = segmentsRef.current.map((segment) =>
+            (segment.id === id ? { ...segment, text: record.before } : segment));
+          commitSegments(next);
+          setSegmentUndo((previous) => {
+            if (!previous.has(id)) return previous;
+            const updated = new Map(previous);
+            updated.delete(id);
+            return updated;
+          });
+          showToast(t('optimizeUndone'));
+          return;
+        }
+        setSegmentUndo((previous) => {
+          if (!previous.has(id)) return previous;
+          const updated = new Map(previous);
+          updated.delete(id);
+          return updated;
+        });
+      };
+
+      /** Improve only the checked segments; identical text is answered from cache. */
+      const optimizeSelectedSegments = async () => {
+        if (optimizeBatchRef.current) return;
+        const ids = new Set(selectedRef.current);
         const targets = segmentsRef.current.filter((segment) =>
-          segment.archived !== true && segment.text.trim() !== '');
+          segment.archived !== true && ids.has(segment.id) && segment.text.trim() !== '');
         if (targets.length === 0) {
           showToast(t('optimizeEmpty'));
           return;
         }
-        optimizeAllRef.current = true;
+        optimizeBatchRef.current = true;
         const snapshot = segmentsRef.current;
         let done = 0;
         let changed = 0;
         let failed = 0;
-        setOptimizeAll({ done, total: targets.length });
+        setOptimizeBatch({ done, total: targets.length });
         try {
           for (const target of targets) {
             const current = segmentsRef.current.find((segment) =>
@@ -2152,6 +2353,11 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                       ? { ...segment, text: value }
                       : segment));
                   commitSegments(next);
+                  setSegmentUndo((previous) => {
+                    const updated = new Map(previous);
+                    updated.set(target.id, { before: current.text, after: value });
+                    return updated;
+                  });
                   changed += 1;
                 }
               } catch {
@@ -2161,18 +2367,27 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               }
             }
             done += 1;
-            setOptimizeAll({ done, total: targets.length });
+            setOptimizeBatch({ done, total: targets.length });
           }
           if (changed > 0) {
-            undoRef.current = { snapshot };
-            showToast(t('optimizedCount', { n: changed }), { label: t('undo'), onClick: undoLast });
+            setBatchUndoState({ snapshot });
+            showToast(t('optimizedCount', { n: changed }));
           } else {
             showToast(failed > 0 ? t('optimizeFailed') : t('optimizedToast'));
           }
         } finally {
-          optimizeAllRef.current = false;
-          setOptimizeAll(null);
+          optimizeBatchRef.current = false;
+          setOptimizeBatch(null);
         }
+      };
+
+      const undoBatchOptimization = () => {
+        const record = batchUndoRef.current;
+        if (record === null || record === undefined) return;
+        setBatchUndoState(null);
+        setSegmentUndo(new Map());
+        commitSegments(record.snapshot);
+        showToast(t('optimizeUndone'));
       };
 
       // Selection -----------------------------------------------------------
@@ -2370,6 +2585,34 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         updateSegmentText(id, event.target?.value ?? '');
       };
 
+      /** Focus a card's textarea and place the caret at an absolute offset. */
+      const focusSegmentAt = (id, caret) => {
+        const element = textareaRefs.current.get(id);
+        if (element === null || element === undefined) return false;
+        try {
+          element.focus?.({ preventScroll: true });
+        } catch {
+          try {
+            element.focus?.();
+          } catch {
+            /* ignore */
+          }
+        }
+        try {
+          const value = typeof element.value === 'string' ? element.value : '';
+          const position = Math.max(0, Math.min(Number(caret) || 0, value.length));
+          if (typeof element.setSelectionRange === 'function') element.setSelectionRange(position, position);
+        } catch {
+          /* A non-layout shim may not support ranges. */
+        }
+        try {
+          element.scrollIntoView?.({ block: 'nearest' });
+        } catch {
+          /* ignore */
+        }
+        return true;
+      };
+
       const onSegmentKeyDown = (event, id) => {
         if (event.isComposing === true || event.nativeEvent?.isComposing === true) return;
         const chord = event.ctrlKey || event.metaKey;
@@ -2382,6 +2625,28 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             ? active.filter((segment) => selectedRef.current.has(segment.id))
             : [current];
           insertSegments(list);
+          return;
+        }
+        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+          if (event.altKey || event.shiftKey || chord) return;
+          const element = event.currentTarget ?? event.target;
+          const value = typeof element?.value === 'string' ? element.value : '';
+          const start = typeof element?.selectionStart === 'number' ? element.selectionStart : null;
+          const end = typeof element?.selectionEnd === 'number' ? element.selectionEnd : start;
+          if (start === null || start !== end) return;
+          const firstBreak = value.indexOf('\n');
+          const lastBreak = value.lastIndexOf('\n');
+          const up = event.key === 'ArrowUp';
+          const atEdge = up
+            ? (firstBreak === -1 || start <= firstBreak)
+            : (lastBreak === -1 || start > lastBreak);
+          if (!atEdge) return;
+          const active = segmentsRef.current.filter((segment) => segment.archived !== true);
+          const position = active.findIndex((segment) => segment.id === id);
+          const neighbor = position < 0 ? undefined : active[position + (up ? -1 : 1)];
+          if (neighbor !== undefined && focusSegmentAt(neighbor.id, up ? neighbor.text.length : 0)) {
+            event.preventDefault?.();
+          }
           return;
         }
         if (event.key !== 'Enter' || event.shiftKey || event.altKey || chord) return;
@@ -2400,8 +2665,11 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           const vw = window.innerWidth || 1280;
           const vh = window.innerHeight || 800;
           const height = ui.minimized ? HEAD_H : ui.height;
-          const x = Math.min(Math.max(8, start.x + moveEvent.clientX - start.px), Math.max(8, vw - ui.width - 8));
-          const y = Math.min(Math.max(8, start.y + moveEvent.clientY - start.py), Math.max(8, vh - height - 8));
+          const minY = hostChromeTop() + EDGE_GAP;
+          const x = Math.min(Math.max(EDGE_GAP, start.x + moveEvent.clientX - start.px),
+            Math.max(EDGE_GAP, vw - ui.width - EDGE_GAP));
+          const y = Math.min(Math.max(minY, start.y + moveEvent.clientY - start.py),
+            Math.max(minY, vh - height - EDGE_GAP));
           setUi((previous) => ({ ...previous, x, y }));
         };
         const stop = () => {
@@ -2427,17 +2695,20 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const move = (moveEvent) => {
           const vw = window.innerWidth || 1280;
           const vh = window.innerHeight || 800;
-          const width = Math.min(Math.max(MIN_W, start.width + moveEvent.clientX - start.px), Math.max(MIN_W, vw - 16));
-          const height = Math.min(Math.max(MIN_H, start.height + moveEvent.clientY - start.py), Math.max(MIN_H, vh - 16));
+          const minY = hostChromeTop() + EDGE_GAP;
+          const width = Math.min(Math.max(MIN_W, start.width + moveEvent.clientX - start.px),
+            Math.max(MIN_W, vw - EDGE_GAP * 2));
+          const height = Math.min(Math.max(MIN_H, start.height + moveEvent.clientY - start.py),
+            Math.max(MIN_H, vh - minY - EDGE_GAP));
           setUi((previous) => {
-            const maxX = Math.max(8, vw - width - 8);
-            const maxY = Math.max(8, vh - height - 8);
+            const maxX = Math.max(EDGE_GAP, vw - width - EDGE_GAP);
+            const maxY = Math.max(minY, vh - height - EDGE_GAP);
             return {
               ...previous,
               width,
               height,
-              x: typeof previous.x === 'number' ? Math.min(previous.x, maxX) : previous.x,
-              y: typeof previous.y === 'number' ? Math.min(previous.y, maxY) : previous.y,
+              x: typeof previous.x === 'number' ? Math.min(Math.max(EDGE_GAP, previous.x), maxX) : previous.x,
+              y: typeof previous.y === 'number' ? Math.min(Math.max(minY, previous.y), maxY) : previous.y,
             };
           });
         };
@@ -2465,8 +2736,9 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const totalChars = segments.reduce((sum, segment) => sum + segment.text.length, 0);
       const displayWidth = ui.width;
       const displayHeight = ui.minimized ? HEAD_H : ui.height;
-      const fallbackX = Math.max(8, ((typeof window !== 'undefined' && window.innerWidth) || 1280) - displayWidth - 24);
-      const fallbackY = Math.max(8, ((typeof window !== 'undefined' && window.innerHeight) || 800) - displayHeight - 24);
+      const fallbackX = Math.max(EDGE_GAP, ((typeof window !== 'undefined' && window.innerWidth) || 1280) - displayWidth - 24);
+      const fallbackY = Math.max(hostChromeTop() + EDGE_GAP,
+        ((typeof window !== 'undefined' && window.innerHeight) || 800) - displayHeight - 24);
       const left = typeof ui.x === 'number' ? ui.x : fallbackX;
       const top = typeof ui.y === 'number' ? ui.y : fallbackY;
 
@@ -2622,17 +2894,24 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           {
             type: 'button',
             className: 'dsh-np-btn',
-            'data-active': optimizeAll !== null ? 'true' : 'false',
-            title: optimizeAll !== null
-              ? t('optimizeAllProgress', { done: optimizeAll.done, total: optimizeAll.total })
-              : t('optimizeAll'),
-            'aria-label': t('optimizeAll'),
-            disabled: activeSegments.length === 0 || optimizeAll !== null,
-            onClick: optimizeAllSegments,
+            'data-active': optimizeBatch !== null || batchUndo !== null ? 'true' : 'false',
+            title: optimizeBatch !== null
+              ? t('optimizeAllProgress', { done: optimizeBatch.done, total: optimizeBatch.total })
+              : batchUndo !== null
+                ? t('undoOptimize')
+                : selectedCount > 0
+                  ? t('optimizeSelected', { n: selectedCount })
+                  : t('optimizeSelectHint'),
+            'aria-label': batchUndo !== null
+              ? t('undoOptimize')
+              : selectedCount > 0 ? t('optimizeSelected', { n: selectedCount }) : t('optimizeSelectHint'),
+            disabled: optimizeBatch !== null
+              || (batchUndo === null && selectedCount === 0),
+            onClick: batchUndo !== null ? undoBatchOptimization : optimizeSelectedSegments,
           },
-          optimizeAll !== null
+          optimizeBatch !== null
             ? h('span', { className: 'dsh-np-mini-spinner' })
-            : h(SparkleIcon, { size: 14 }),
+            : batchUndo !== null ? h(UndoIcon, { size: 14 }) : h(SparkleIcon, { size: 14 }),
         ),
         h(
           'button',
@@ -2720,6 +2999,15 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const activeCards = activeSegments.map((segment, index) => {
         const images = Array.isArray(segment.images) ? segment.images : [];
         const empty = segment.text.trim() === '' && images.length === 0;
+        const titleValue = segment.title ?? '';
+        const showTitleInput = titleValue !== '' || titleEditing === segment.id;
+        const undoRecord = segmentUndo.get(segment.id);
+        const canUndoOptimize = undoRecord !== undefined && undoRecord.after === segment.text;
+        const optimizingNow = optimizing.has(segment.id);
+        const aiBusy = optimizingNow || optimizeBatch !== null;
+        const aiTitle = aiBusy
+          ? t('optimizing')
+          : canUndoOptimize ? t('undoOptimize') : t('optimizeSegment');
         return h(
           'article',
           {
@@ -2786,28 +3074,43 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               },
               String(index + 1).padStart(2, '0'),
             ),
-            h('input', {
-              type: 'text',
-              className: 'dsh-np-title-input',
-              value: segment.title ?? '',
-              placeholder: t('titlePlaceholder'),
-              maxLength: MAX_TITLE_CHARS,
-              'aria-label': t('segmentTitle'),
-              spellCheck: false,
-              onChange: (event) => updateSegmentTitle(segment.id, event.target?.value ?? ''),
-              onKeyDown: (event) => {
-                if (event.key !== 'Enter') return;
-                event.preventDefault();
-                try {
-                  event.currentTarget?.blur?.();
-                } catch {
-                  /* ignore */
-                }
-              },
-              onBlur: () => {
-                if (dirtyRef.current) saveNowRef.current?.();
-              },
-            }),
+            showTitleInput
+              ? h('input', {
+                  type: 'text',
+                  className: 'dsh-np-title-input',
+                  value: titleValue,
+                  placeholder: t('titlePlaceholder'),
+                  maxLength: MAX_TITLE_CHARS,
+                  autoFocus: titleValue === '',
+                  'aria-label': t('segmentTitle'),
+                  spellCheck: false,
+                  onFocus: () => setTitleEditing(segment.id),
+                  onChange: (event) => updateSegmentTitle(segment.id, event.target?.value ?? ''),
+                  onKeyDown: (event) => {
+                    if (event.key !== 'Enter') return;
+                    event.preventDefault();
+                    try {
+                      event.currentTarget?.blur?.();
+                    } catch {
+                      /* ignore */
+                    }
+                  },
+                  onBlur: () => {
+                    if (dirtyRef.current) saveNowRef.current?.();
+                    if ((segment.title ?? '') === '') setTitleEditing('');
+                  },
+                })
+              : h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dsh-np-title-add',
+                    title: t('segmentTitle'),
+                    'aria-label': t('segmentTitle'),
+                    onClick: () => setTitleEditing(segment.id),
+                  },
+                  t('titlePlaceholder'),
+                ),
             h(
               'button',
               {
@@ -2861,14 +3164,16 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                 type: 'button',
                 className: 'dsh-np-segbtn',
                 'data-ai': 'true',
-                title: optimizing.has(segment.id) ? t('optimizing') : t('optimizeSegment'),
-                'aria-label': t('optimizeSegment'),
-                disabled: empty || optimizing.has(segment.id) || optimizeAll !== null,
-                onClick: () => optimizeSegment(segment.id),
+                title: aiTitle,
+                'aria-label': aiTitle,
+                disabled: aiBusy || (canUndoOptimize ? false : empty),
+                onClick: canUndoOptimize
+                  ? () => undoOptimizeSegment(segment.id)
+                  : () => optimizeSegment(segment.id),
               },
-              optimizing.has(segment.id)
+              optimizingNow
                 ? h('span', { className: 'dsh-np-mini-spinner' })
-                : h(SparkleIcon, { size: 14 }),
+                : canUndoOptimize ? h(UndoIcon, { size: 14 }) : h(SparkleIcon, { size: 14 }),
             ),
             h(
               'button',
