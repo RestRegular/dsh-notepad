@@ -88,6 +88,10 @@ window.__ModuleLoader__.load({
         insert: '插入到输入框',
         insertSegment: '插入此段',
         insertSelected: '插入选中的 {n} 段',
+        insertNewSession: '在新会话中插入',
+        insertNewSelected: '在新会话中插入选中的 {n} 段',
+        insertNewDone: '已在新会话中填入内容',
+        insertNewUnavailable: '无法新建会话，内容已复制',
         inserted: '已插入输入框',
         insertEmpty: '没有可插入的内容',
         insertUnavailable: '输入框暂不可用，内容已复制',
@@ -99,6 +103,10 @@ window.__ModuleLoader__.load({
         send: '发送',
         sendSegment: '发送此段',
         sendSelected: '发送选中的 {n} 段',
+        sendNewSession: '在新会话中发送',
+        sendNewSelected: '在新会话中发送选中的 {n} 段',
+        sendNewDone: '已在新会话中发送',
+        sendNewUnavailable: '无法新建会话，内容已复制',
         sending: '发送中…',
         sent: '已发送',
         sendFailed: '发送失败',
@@ -147,6 +155,12 @@ window.__ModuleLoader__.load({
         restoredToast: '已恢复',
         restoredCount: '已恢复 {n} 段',
         deleteSegment: '删除此段',
+        deleteActiveSegment: '删除此段（不可恢复）',
+        deleteConfirmTitle: '删除这个分段？',
+        deleteConfirmBody: '删除后无法恢复。分段里的文字和图片引用会一起移除。',
+        deleteConfirmHint: '此操作不可撤销',
+        deleteConfirmCancel: '取消',
+        deleteConfirmOk: '删除',
         deletedToast: '已删除',
         clearArchive: '清空归档',
         clearedArchive: '已清空 {n} 段归档',
@@ -160,13 +174,24 @@ window.__ModuleLoader__.load({
         show: '显示记事本（Ctrl+Shift+N）',
         chars: '{n} 字符',
         segments: '{n} 段',
-        hint: 'Enter 新建分段 · Shift+Enter 换行 · Ctrl+Enter 插入 · Ctrl+Shift+0 复位浮窗 · 支持粘贴图片',
+        hintNext: '点击查看下一条快捷键',
+        hintEnter: 'Enter 新建分段',
+        hintNewline: 'Shift+Enter 分段内换行',
+        hintInsert: 'Ctrl+Enter 插入当前分段',
+        hintToggle: 'Ctrl+Shift+N 显示 / 隐藏浮窗',
+        hintReset: 'Ctrl+Shift+0 复位浮窗',
+        hintArrow: '↑ / ↓ 切换分段',
+        hintPaste: '粘贴图片自动保存到工作区',
+        resetShortcut: '复位记事本位置和尺寸',
         workspace: '工作区',
         resize: '拖动调整大小',
         uiReset: '已复位浮窗位置和尺寸',
         addImage: '添加图片',
         removeImage: '移除图片',
         openImage: '打开图片',
+        imagePreview: '图片预览',
+        closePreview: '关闭预览',
+        openOriginal: '打开原图',
         imageAdded: '已添加 {n} 张图片',
         imageFailed: '图片添加失败',
         imageUnsupported: '只支持 PNG / JPEG / WebP / GIF 图片',
@@ -196,6 +221,10 @@ window.__ModuleLoader__.load({
         insert: 'Insert into composer',
         insertSegment: 'Insert this segment',
         insertSelected: 'Insert {n} selected',
+        insertNewSession: 'Insert into a new session',
+        insertNewSelected: 'Insert {n} selected into a new session',
+        insertNewDone: 'Filled into a new session',
+        insertNewUnavailable: 'Could not create a session; copied instead',
         inserted: 'Inserted into composer',
         insertEmpty: 'Nothing to insert',
         insertUnavailable: 'Composer unavailable; copied instead',
@@ -207,6 +236,10 @@ window.__ModuleLoader__.load({
         send: 'Send',
         sendSegment: 'Send this segment',
         sendSelected: 'Send {n} selected',
+        sendNewSession: 'Send into a new session',
+        sendNewSelected: 'Send {n} selected into a new session',
+        sendNewDone: 'Sent into a new session',
+        sendNewUnavailable: 'Could not create a session; copied instead',
         sending: 'Sending…',
         sent: 'Sent',
         sendFailed: 'Send failed',
@@ -255,6 +288,12 @@ window.__ModuleLoader__.load({
         restoredToast: 'Restored',
         restoredCount: 'Restored {n}',
         deleteSegment: 'Delete this segment',
+        deleteActiveSegment: 'Delete this segment (cannot be undone)',
+        deleteConfirmTitle: 'Delete this segment?',
+        deleteConfirmBody: 'This cannot be undone. The text and image references in the segment will be removed too.',
+        deleteConfirmHint: 'This action cannot be undone',
+        deleteConfirmCancel: 'Cancel',
+        deleteConfirmOk: 'Delete',
         deletedToast: 'Deleted',
         clearArchive: 'Clear archive',
         clearedArchive: 'Cleared {n} archived',
@@ -268,13 +307,24 @@ window.__ModuleLoader__.load({
         show: 'Show notepad (Ctrl+Shift+N)',
         chars: '{n} chars',
         segments: '{n} segments',
-        hint: 'Enter new segment · Shift+Enter newline · Ctrl+Enter insert · Ctrl+Shift+0 reset window · Paste images',
+        hintNext: 'Click for the next shortcut',
+        hintEnter: 'Enter creates a segment',
+        hintNewline: 'Shift+Enter adds a line break',
+        hintInsert: 'Ctrl+Enter inserts the current segment',
+        hintToggle: 'Ctrl+Shift+N shows / hides the notepad',
+        hintReset: 'Ctrl+Shift+0 resets the floating window',
+        hintArrow: '↑ / ↓ switch segments',
+        hintPaste: 'Pasted images are saved in the workspace',
+        resetShortcut: 'Reset the notepad position and size',
         workspace: 'Workspace',
         resize: 'Drag to resize',
         uiReset: 'Window position and size reset',
         addImage: 'Add image',
         removeImage: 'Remove image',
         openImage: 'Open image',
+        imagePreview: 'Image preview',
+        closePreview: 'Close preview',
+        openOriginal: 'Open original',
         imageAdded: 'Added {n} image(s)',
         imageFailed: 'Could not add image',
         imageUnsupported: 'Only PNG / JPEG / WebP / GIF images are supported',
@@ -286,6 +336,17 @@ window.__ModuleLoader__.load({
         imagePasteSaved: 'Saved under .dsh/notepad/images',
       },
     };
+
+    /** Rotating shortcut tips shown one at a time in the footer. */
+    const HINT_KEYS = [
+      'hintEnter',
+      'hintNewline',
+      'hintInsert',
+      'hintToggle',
+      'hintReset',
+      'hintArrow',
+      'hintPaste',
+    ];
 
     function preferredLanguage() {
       try {
@@ -576,6 +637,60 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** Two panels, the second with a plus: start a new session. */
+    function NewSessionIcon({ size = 16 }) {
+      return h(
+        Svg,
+        { size, viewBox: '0 0 16 16' },
+        h('rect', {
+          x: 1.9, y: 3.2, width: 5.1, height: 9.4, rx: 1.4,
+          stroke: 'currentColor', strokeWidth: 1.25,
+        }),
+        h('rect', {
+          x: 8.7, y: 3.2, width: 5.4, height: 9.4, rx: 1.4,
+          stroke: 'currentColor', strokeWidth: 1.25,
+        }),
+        h('path', {
+          d: 'M11.4 6.1v3.8M9.5 8h3.8',
+          stroke: 'currentColor', strokeWidth: 1.25, strokeLinecap: 'round',
+        }),
+      );
+    }
+
+    /** Circular arrow: reset the floating window geometry. */
+    function ResetIcon({ size = 16 }) {
+      return h(
+        Svg,
+        { size, viewBox: '0 0 16 16' },
+        h('path', {
+          d: 'M13 8a5 5 0 1 1-1.6-3.7',
+          stroke: 'currentColor', strokeWidth: 1.35, strokeLinecap: 'round',
+        }),
+        h('path', {
+          d: 'M13.3 2.7v3.4H9.9',
+          stroke: 'currentColor', strokeWidth: 1.35,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }),
+      );
+    }
+
+    /** Arrow leaving a frame: open the original image. */
+    function OpenIcon({ size = 16 }) {
+      return h(
+        Svg,
+        { size, viewBox: '0 0 16 16' },
+        h('path', {
+          d: 'M9.4 3.2h3.4v3.4M12.8 3.2 7.6 8.4',
+          stroke: 'currentColor', strokeWidth: 1.3,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }),
+        h('path', {
+          d: 'M12.4 9.4v2.3c0 .7-.6 1.3-1.3 1.3H4.6c-.7 0-1.3-.6-1.3-1.3V5.2c0-.7.6-1.3 1.3-1.3h2.3',
+          stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round',
+        }),
+      );
+    }
+
     /** Two arrows converging: merge selected segments into one. */
     function MergeIcon({ size = 16 }) {
       return h(
@@ -636,7 +751,7 @@ window.__ModuleLoader__.load({
 .dsh-np-btn[data-accent=true]{background:var(--np-accent);color:var(--np-accent-fg)}
 .dsh-np-btn[data-accent=true]:hover:not(:disabled){background:color-mix(in srgb,var(--np-accent) 88%,#000);color:var(--np-accent-fg)}
 .dsh-np-btn:disabled{opacity:.38;cursor:default;background:transparent;color:var(--dsw-alias-label-tertiary,#6b7280)}
-.dsh-np-btn:focus-visible,.dsh-np-segbtn:focus-visible,.dsh-np-link:focus-visible,.dsh-np-empty-add:focus-visible,.dsh-np-toast-action:focus-visible,.dsh-np-selectall input:focus-visible,.dsh-np-check input:focus-visible,.dsh-np-title-add:focus-visible,.dsh-np-restore:focus-visible,.dsh-np-img-open:focus-visible,.dsh-np-img-remove:focus-visible{outline:2px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#4176e6));outline-offset:-2px}
+.dsh-np-btn:focus-visible,.dsh-np-segbtn:focus-visible,.dsh-np-link:focus-visible,.dsh-np-empty-add:focus-visible,.dsh-np-toast-action:focus-visible,.dsh-np-selectall input:focus-visible,.dsh-np-check input:focus-visible,.dsh-np-title-add:focus-visible,.dsh-np-preview-btn:focus-visible,.dsh-np-confirm-btn:focus-visible,button.dsh-np-hint:focus-visible,.dsh-np-restore:focus-visible,.dsh-np-img-open:focus-visible,.dsh-np-img-remove:focus-visible{outline:2px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#4176e6));outline-offset:-2px}
 .dsh-np-body{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;padding:8px 10px 0;opacity:1;transition:opacity .16s ease,visibility 0s linear 0s}
 .dsh-np-card[data-minimized=true] .dsh-np-body{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .16s ease,visibility 0s linear .16s}
 .dsh-np-tools{display:flex;align-items:center;flex-wrap:wrap;gap:4px;flex:none;padding:0 2px 7px;border-bottom:1px solid var(--dsw-alias-border-l1,rgb(15 23 42/.08))}
@@ -669,6 +784,11 @@ window.__ModuleLoader__.load({
 .dsh-np-segbtn[data-ai=true]{color:var(--np-accent);opacity:1}
 .dsh-np-segbtn[data-danger=true]:hover:not(:disabled){color:var(--dsw-alias-state-error-primary,#e25555);background:var(--dsw-alias-interactive-bg-hover-danger,rgb(236 19 19/.05))}
 .dsh-np-segbtn:disabled{opacity:.3;cursor:default}
+.dsh-np-actiongroup{display:inline-flex;align-items:center;flex:none;padding:1px;border:1px solid transparent;border-radius:8px;transition:border-color .12s,background .12s}
+.dsh-np-actiongroup:hover,.dsh-np-actiongroup:focus-within{border-color:var(--dsw-alias-border-l2,rgb(15 23 42/.14));background:color-mix(in srgb,var(--np-surface-2) 58%,transparent)}
+.dsh-np-group-extra{width:0!important;min-width:0;padding:0;border:0;opacity:0;visibility:hidden;pointer-events:none;overflow:hidden;transition:width .14s ease,opacity .12s ease,visibility 0s linear .14s}
+.dsh-np-actiongroup:hover .dsh-np-group-extra,.dsh-np-actiongroup:focus-within .dsh-np-group-extra{width:24px!important;opacity:1;visibility:visible;pointer-events:auto;transition:width .14s ease,opacity .12s ease,visibility 0s linear 0s}
+.dsh-np-actiongroup[data-size=bar]:hover .dsh-np-group-extra,.dsh-np-actiongroup[data-size=bar]:focus-within .dsh-np-group-extra{width:27px!important}
 .dsh-np-seg-text{display:block;width:100%;box-sizing:border-box;padding:2px 10px 8px;border:0;outline:0;resize:none;background:transparent;color:inherit;font-family:${FONT_STACK};font-size:13px;line-height:1.6;min-height:26px;max-height:240px;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2}
 .dsh-np-seg-text::placeholder{color:var(--dsw-alias-label-caption,#9aa3b2)}
 .dsh-np-seg-text:disabled{opacity:.6}
@@ -706,6 +826,24 @@ window.__ModuleLoader__.load({
 .dsh-np-retry{flex:none;padding:0;border:0;background:none;color:var(--dsw-alias-link,#4176e6);font:inherit;font-size:10.5px;cursor:pointer;text-decoration:underline}
 .dsh-np-count{flex:none;font-variant-numeric:tabular-nums}
 .dsh-np-hint{margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85;font-size:10px}
+button.dsh-np-hint{padding:0;border:0;background:none;color:inherit;font:inherit;font-size:10px;cursor:pointer;text-align:right}
+button.dsh-np-hint:hover{opacity:1;color:var(--dsw-alias-label-secondary,#4b5563);text-decoration:underline}
+.dsh-np-preview{position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:44px 20px 28px;background:rgb(8 12 20/.74);backdrop-filter:blur(3px);animation:dsh-np-fade .14s ease-out}
+.dsh-np-preview-img{display:block;max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;background:#fff;box-shadow:0 16px 40px rgb(0 0 0/.35)}
+.dsh-np-preview-bar{position:absolute;top:8px;right:8px;display:flex;align-items:center;gap:4px}
+.dsh-np-preview-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid rgb(255 255 255/.18);border-radius:7px;background:rgb(15 23 42/.55);color:#f8fafc;cursor:pointer;backdrop-filter:blur(4px)}
+.dsh-np-preview-btn:hover{background:rgb(15 23 42/.82)}
+.dsh-np-preview-name{position:absolute;left:12px;bottom:8px;max-width:calc(100% - 24px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e5e7eb;font-size:11px}
+.dsh-np-confirm{position:absolute;inset:0;z-index:21;display:flex;align-items:center;justify-content:center;padding:16px;background:rgb(8 12 20/.55);backdrop-filter:blur(2px);animation:dsh-np-fade .14s ease-out}
+.dsh-np-confirm-card{width:min(100%,300px);padding:14px;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.14));border-radius:12px;background:var(--np-surface);box-shadow:var(--dsw-elevation-prominent,0 20px 50px rgb(15 23 42/.22))}
+.dsh-np-confirm-title{font-size:13px;font-weight:650;color:var(--dsw-alias-label-primary,#1f2430)}
+.dsh-np-confirm-body{margin-top:6px;color:var(--dsw-alias-label-secondary,#4b5563);font-size:12px;line-height:1.55}
+.dsh-np-confirm-hint{margin-top:8px;color:var(--dsw-alias-state-error-primary,#e25555);font-size:11px}
+.dsh-np-confirm-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:12px}
+.dsh-np-confirm-btn{height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.14));border-radius:7px;background:var(--np-surface-2);color:var(--dsw-alias-label-secondary,#4b5563);font:inherit;font-size:12px;cursor:pointer}
+.dsh-np-confirm-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06));color:var(--dsw-alias-label-primary,#1f2430)}
+.dsh-np-confirm-btn[data-danger=true]{border-color:transparent;background:var(--dsw-alias-state-error-primary,#e25555);color:#fff}
+.dsh-np-confirm-btn[data-danger=true]:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e25555) 86%,#000);color:#fff}
 .dsh-np-toast{position:absolute;left:50%;bottom:38px;transform:translateX(-50%);z-index:2;display:flex;align-items:center;gap:8px;max-width:calc(100% - 32px);padding:5px 10px;border-radius:8px;background:var(--np-surface-2);border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.12));box-shadow:var(--dsw-elevation-lv2,0 8px 24px rgb(15 23 42/.18));color:var(--dsw-alias-label-primary,#1f2430);font-size:11.5px;white-space:nowrap;overflow:hidden;animation:dsh-np-rise .16s ease-out}
 .dsh-np-toast-text{overflow:hidden;text-overflow:ellipsis}
 .dsh-np-toast-action{flex:none;padding:0;border:0;background:none;color:var(--dsw-alias-link,#4176e6);font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;text-decoration:underline}
@@ -720,6 +858,7 @@ window.__ModuleLoader__.load({
 [data-row-key^="workspace:"][data-np-unsent]{position:relative}
 [data-row-key^="workspace:"][data-np-unsent]::after{content:attr(data-np-unsent);position:absolute;top:-4px;left:1px;z-index:2;min-width:15px;height:15px;padding:0 4px;box-sizing:border-box;border-radius:8px;background:var(--dsw-alias-state-business-primary,#4176e6);color:#fff;font-size:9.5px;font-weight:700;line-height:15px;text-align:center;font-variant-numeric:tabular-nums;pointer-events:none;box-shadow:0 0 0 1.5px var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-layer-1,#fff))}
 @keyframes dsh-np-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes dsh-np-fade{from{opacity:0}to{opacity:1}}
 @keyframes dsh-np-rise{from{opacity:0;transform:translate(-50%,4px)}to{opacity:1;transform:translate(-50%,0)}}
 @keyframes dsh-np-item-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
 @keyframes dsh-np-spin{to{transform:rotate(360deg)}}
@@ -727,7 +866,7 @@ body[data-ds-dark-theme] .dsh-np-card{--np-accent-fg:#0f1115;box-shadow:0 18px 4
 body[data-ds-dark-theme] .dsh-np-seg[data-selected=true]{background:color-mix(in srgb,var(--np-accent) 14%,var(--dsw-alias-bg-layer-2,#2c2c2e))}
 body[data-ds-dark-theme] .dsh-np-btn[data-accent=true]:hover:not(:disabled){background:color-mix(in srgb,var(--np-accent) 84%,#fff)}
 body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
-@media (prefers-reduced-motion:reduce){.dsh-np-card,.dsh-np-body,.dsh-np-archive,.dsh-np-restore,.dsh-np-seg,.dsh-np-toast{transition:none!important;animation:none!important}.dsh-np-dot[data-state=saving]{animation:none}.dsh-np-img-spinner,.dsh-np-mini-spinner{animation:none}}`;
+@media (prefers-reduced-motion:reduce){.dsh-np-card,.dsh-np-body,.dsh-np-archive,.dsh-np-restore,.dsh-np-seg,.dsh-np-toast,.dsh-np-actiongroup,.dsh-np-group-extra,.dsh-np-preview,.dsh-np-confirm{transition:none!important;animation:none!important}.dsh-np-dot[data-state=saving]{animation:none}.dsh-np-img-spinner,.dsh-np-mini-spinner{animation:none}}`;
 
     // ------------------------------------------------------------------
     // Helpers
@@ -1252,6 +1391,38 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       }
     }
 
+    /** Mounted notepads register here so a host shortcut can reset them. */
+    const resetHandlers = new Set();
+
+    /** Whether the host shortcut service already owns Ctrl/Cmd+Shift+0. */
+    let resetShortcutHandledByHost = false;
+
+    /** Ask every mounted notepad to reset its position and size. */
+    function requestUiReset() {
+      let handled = false;
+      for (const handler of resetHandlers) {
+        try {
+          handler();
+          handled = true;
+        } catch {
+          /* One failing overlay must not block the others. */
+        }
+      }
+      return handled;
+    }
+
+    /** Read the General Settings "send behavior while busy" preference. */
+    function busyEnterPreference(ctx) {
+      try {
+        const forms = ctx.get('configForms') ?? ctx.configForms;
+        const form = typeof forms?.get === 'function' ? forms.get('ui-conversation') : undefined;
+        const value = form?.getSnapshot?.()?.value;
+        return value?.busyEnter === 'steer' ? 'steer' : 'queue';
+      } catch {
+        return 'queue';
+      }
+    }
+
     // ------------------------------------------------------------------
     // Overlay
     // ------------------------------------------------------------------
@@ -1280,6 +1451,9 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const [segmentUndo, setSegmentUndo] = useState(() => new Map());
       const [batchUndo, setBatchUndo] = useState(null);
       const [titleEditing, setTitleEditing] = useState('');
+      const [previewImage, setPreviewImage] = useState(null);
+      const [deleteConfirm, setDeleteConfirm] = useState('');
+      const [hintIndex, setHintIndex] = useState(0);
       const [wsCounts, setWsCounts] = useState({});
       const [currentWsId, setCurrentWsId] = useState('');
 
@@ -1420,6 +1594,24 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         toastTimerRef.current = setTimeout(() => setToast(null), action === undefined || action === null ? 1800 : 5000);
       };
 
+      const resetGeometry = () => {
+        setUi((previous) => clampUi({
+          ...previous,
+          x: null,
+          y: null,
+          width: DEFAULT_W,
+          height: DEFAULT_H,
+        }));
+        showToast(t('uiReset'));
+      };
+
+      useEffect(() => {
+        resetHandlers.add(resetGeometry);
+        return () => {
+          resetHandlers.delete(resetGeometry);
+        };
+      }, []);
+
       const scheduleSave = () => {
         clearTimer();
         timerRef.current = setTimeout(() => {
@@ -1485,12 +1677,17 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           setSegmentUndo(new Map());
           setBatchUndoState(null);
           setTitleEditing('');
+          setPreviewImage(null);
+          setDeleteConfirm('');
           pendingScrollRef.current = null;
           setStatus('idle');
           setError('');
           return undefined;
         }
-        if (dirtyRef.current && rootRef.current !== '' && rootRef.current !== binding.cwd) {
+        if (dirtyRef.current && rootRef.current !== '') {
+          // Flush the old workspace/session note before this binding replaces
+          // the in-memory segments; a same-workspace session switch must not
+          // drop a still-debounced edit.
           saveNowRef.current?.({ force: true });
         }
         clearTimer();
@@ -1505,6 +1702,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         setSegmentUndo(new Map());
         setBatchUndoState(null);
         setTitleEditing('');
+        setPreviewImage(null);
+        setDeleteConfirm('');
         pendingScrollRef.current = null;
         setStatus('loading');
         setError('');
@@ -1686,16 +1885,11 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             setUi((previous) => clampUi({ ...previous, hidden: !previous.hidden }));
             return;
           }
-          if (event.key === '0' || event.code === 'Digit0' || event.code === 'Numpad0') {
+          if (!resetShortcutHandledByHost
+            && (event.key === '0' || event.key === ')' || event.code === 'Digit0'
+              || event.code === 'Numpad0' || event.keyCode === 48)) {
             event.preventDefault();
-            setUi((previous) => clampUi({
-              ...previous,
-              x: null,
-              y: null,
-              width: DEFAULT_W,
-              height: DEFAULT_H,
-            }));
-            showToast(t('uiReset'));
+            resetGeometry();
           }
         };
         window.addEventListener('keydown', onKeyDown, true);
@@ -1707,6 +1901,19 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           imageDeleteTimersRef.current.clear();
         };
       }, []);
+
+      // Close the preview / delete confirmation with Escape ----------------
+      useEffect(() => {
+        if (previewImage === null && deleteConfirm === '') return undefined;
+        const onKeyDown = (event) => {
+          if (event.key !== 'Escape') return;
+          event.preventDefault();
+          setPreviewImage(null);
+          setDeleteConfirm('');
+        };
+        window.addEventListener('keydown', onKeyDown, true);
+        return () => window.removeEventListener('keydown', onKeyDown, true);
+      }, [previewImage, deleteConfirm]);
 
       // Flush on page hide / reload -----------------------------------------
       useEffect(() => {
@@ -1936,6 +2143,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const stillReferenced = next.some((segment) =>
           (Array.isArray(segment.images) ? segment.images : []).some((image) => image.path === pathValue));
         commitSegments(next);
+        if (previewImage !== null && previewImage.path === pathValue) setPreviewImage(null);
         if (!stillReferenced) deleteImageFile(pathValue);
       };
 
@@ -1966,7 +2174,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const files = clipboardImageFiles(data);
         if (files.length === 0) return;
         event.preventDefault?.();
-        event.stopPropagation?.();
+        event?.stopPropagation?.();
         attachImages(id, files, 'paste');
       };
 
@@ -1975,7 +2183,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         setDragSegment('');
         if (files.length === 0) return;
         event.preventDefault?.();
-        event.stopPropagation?.();
+        event?.stopPropagation?.();
         attachImages(id, files, 'pick');
       };
 
@@ -1995,11 +2203,15 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       };
 
       const openImage = (image) => {
+        setPreviewImage({ path: image.path, name: image.name });
+      };
+
+      const openOriginalImage = (image) => {
         const url = imageUrl(image.path, rootRef.current);
         try {
           window.open(url, '_blank', 'noopener,noreferrer');
         } catch {
-          /* Popups may be blocked; the path remains available in the title. */
+          /* Popups may be blocked; the in-panel preview still works. */
         }
       };
 
@@ -2102,6 +2314,28 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         showToast(t('deletedToast'), { label: t('undo'), onClick: undoLast });
       };
 
+      /** Irreversible delete for an active segment, gated by a confirmation. */
+      const deleteActiveSegment = (id) => {
+        setDeleteConfirm('');
+        setPreviewImage(null);
+        const target = segmentsRef.current.find((segment) => segment.id === id && segment.archived !== true);
+        if (target === undefined) return;
+        // This delete cannot be undone: retire any older snackbar undo so it
+        // cannot resurrect the segment through a stale snapshot.
+        undoRef.current = null;
+        setToast(null);
+        setSegmentUndo((previous) => {
+          if (!previous.has(id)) return previous;
+          const updated = new Map(previous);
+          updated.delete(id);
+          return updated;
+        });
+        const next = segmentsRef.current.filter((segment) => segment.id !== id);
+        commitSegments(next);
+        scheduleImageCleanup(target.images);
+        showToast(t('deletedToast'));
+      };
+
       const clearArchive = () => {
         const archived = segmentsRef.current.filter((segment) => segment.archived === true);
         if (archived.length === 0) return;
@@ -2199,7 +2433,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         const types = event?.dataTransfer?.types;
         if (types !== undefined && types !== null && !Array.from(types).includes('application/x-dsh-notepad-segment')) return;
         event.preventDefault?.();
-        event.stopPropagation?.();
+        event?.stopPropagation?.();
         const rect = typeof event.currentTarget?.getBoundingClientRect === 'function'
           ? event.currentTarget.getBoundingClientRect()
           : null;
@@ -2224,7 +2458,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         setReorderTarget(null);
         if (source === '') return;
         event.preventDefault?.();
-        event.stopPropagation?.();
+        event?.stopPropagation?.();
         reorderSegments(source, id, target?.after === true);
       };
 
@@ -2447,6 +2681,28 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         showToast(copied ? t('insertUnavailable') : t('copyFailed'));
       };
 
+      /** Start a new session in this workspace with the text already in its composer. */
+      const insertNewSession = async (list) => {
+        const value = mergedText(list);
+        if (value === '') {
+          showToast(t('insertEmpty'));
+          return;
+        }
+        const uiWorkspace = ctx.get('uiWorkspace');
+        if (uiWorkspace !== undefined && uiWorkspace !== null && typeof uiWorkspace.startSession === 'function') {
+          try {
+            if (dirtyRef.current) await saveNowRef.current?.({ force: true });
+            uiWorkspace.startSession(undefined, { prompt: value, clearPreviousDraft: true });
+            showToast(t('insertNewDone'));
+            return;
+          } catch {
+            /* Fall through to copy. */
+          }
+        }
+        const copied = await copyText(value);
+        showToast(copied ? t('insertNewUnavailable') : t('copyFailed'));
+      };
+
       const replaceSegments = async (list) => {
         const value = mergedText(list);
         if (value === '') {
@@ -2461,55 +2717,93 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         showToast(copied ? t('replaceUnavailable') : t('copyFailed'));
       };
 
+      /** Resolve queue vs steer exactly like the composer's Send button. */
+      const resolveSendMode = (sessionId) => {
+        try {
+          const sessions = ctx.get('sessions');
+          const row = sessions?.list?.getSnapshot?.()?.byId?.[sessionId];
+          if (row?.running !== true) return 'queue';
+        } catch {
+          return 'queue';
+        }
+        return busyEnterPreference(ctx);
+      };
+
+      /** Send through the session face with an explicit queue/steer mode. */
+      const promptSession = async (sessionId, value, mode) => {
+        const sessions = ctx.get('sessions');
+        if (sessions === undefined || sessions === null || typeof sessions.binding !== 'function') return false;
+        const liveBinding = sessions.binding(sessionId);
+        const session = liveBinding?.session;
+        if (session === undefined || session === null || typeof session.prompt !== 'function') return false;
+        let echo;
+        try {
+          echo = typeof session.beginSubmission === 'function'
+            ? session.beginSubmission({ mode, text: value, attachments: [] })
+            : undefined;
+        } catch {
+          echo = undefined;
+        }
+        try {
+          const result = await session.prompt([{ type: 'text', text: value }], mode, undefined, echo?.requestId);
+          if (result !== undefined && result !== null && result.ok === false) {
+            const failure = new Error(result.error?.message ?? 'prompt failed');
+            failure.code = result.error?.code;
+            throw failure;
+          }
+          return true;
+        } catch (reason) {
+          try {
+            echo?.abandon?.();
+          } catch {
+            /* ignore */
+          }
+          throw reason;
+        }
+      };
+
       /**
-       * Send text into the current session. Prefers the documented scoped
-       * conversation service; falls back to the session face with a local echo.
+       * Send text into a session. Queue prefers the documented scoped conversation
+       * service; steer and its fallback go through the session face. The delivery
+       * mode follows the General Settings "send while busy" preference.
        * @returns {Promise<boolean>} whether a prompt was accepted
        */
-      const sendToSession = async (value) => {
-        const sessionId = rootSessionRef.current !== '' ? rootSessionRef.current : bindingRef.current?.id;
+      const sendToSession = async (value, targetSessionId) => {
+        const sessionId = typeof targetSessionId === 'string' && targetSessionId !== ''
+          ? targetSessionId
+          : (rootSessionRef.current !== '' ? rootSessionRef.current : bindingRef.current?.id);
         if (typeof sessionId !== 'string' || sessionId === '') return false;
         const sessions = ctx.get('sessions');
         if (sessions === undefined || sessions === null) return false;
+        const mode = resolveSendMode(sessionId);
+        let scoped;
         if (typeof sessions.scope === 'function') {
-          const scoped = sessions.scope(sessionId);
-          const conversation = scoped === undefined || scoped === null
-            ? undefined
-            : typeof scoped.get === 'function' ? scoped.get('conversation') : scoped.conversation;
-          if (conversation !== undefined && conversation !== null && typeof conversation.send === 'function') {
-            await conversation.send(value);
-            return true;
+          try {
+            scoped = sessions.scope(sessionId);
+          } catch {
+            scoped = undefined;
           }
         }
-        if (typeof sessions.binding === 'function') {
-          const liveBinding = sessions.binding(sessionId);
-          const session = liveBinding?.session;
-          if (session !== undefined && session !== null && typeof session.prompt === 'function') {
-            let echo;
-            try {
-              echo = typeof session.beginSubmission === 'function'
-                ? session.beginSubmission({ mode: 'queue', text: value, attachments: [] })
-                : undefined;
-            } catch {
-              echo = undefined;
-            }
-            try {
-              const result = await session.prompt([{ type: 'text', text: value }], 'queue', undefined, echo?.requestId);
-              if (result !== undefined && result !== null && result.ok === false) {
-                throw new Error(result.error?.message ?? 'prompt failed');
-              }
+        const conversation = scoped === undefined || scoped === null
+          ? undefined
+          : typeof scoped.get === 'function' ? scoped.get('conversation') : scoped.conversation;
+        if (mode === 'queue' && conversation !== undefined && conversation !== null
+          && typeof conversation.send === 'function') {
+          await conversation.send(value);
+          return true;
+        }
+        try {
+          return await promptSession(sessionId, value, mode);
+        } catch (reason) {
+          if (mode === 'steer' && reason?.code === 'session/steer-unavailable') {
+            if (conversation !== undefined && conversation !== null && typeof conversation.send === 'function') {
+              await conversation.send(value);
               return true;
-            } catch (reason) {
-              try {
-                echo?.abandon?.();
-              } catch {
-                /* ignore */
-              }
-              throw reason;
             }
+            return promptSession(sessionId, value, 'queue');
           }
+          throw reason;
         }
-        return false;
       };
 
       const sendSegments = async (list) => {
@@ -2550,8 +2844,78 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         }
       };
 
+      /** Create an empty session in a workspace and return its id. */
+      const createWorkspaceSession = async (cwd) => {
+        const sessions = ctx.get('sessions');
+        if (sessions === undefined || sessions === null || typeof sessions.create !== 'function') return null;
+        const result = await sessions.create({ cwd });
+        if (result === undefined || result === null) return null;
+        if (result.ok === false) {
+          const failure = new Error(result.error?.message ?? 'create session failed');
+          failure.code = result.error?.code;
+          throw failure;
+        }
+        const id = result.value?.sessionId ?? result.sessionId
+          ?? (typeof result === 'string' ? result : undefined);
+        return typeof id === 'string' && id !== '' ? id : null;
+      };
+
+      /** Start a fresh session, send the text there, then switch to it. */
+      const sendNewSession = async (list) => {
+        if (sendingRef.current) return;
+        const value = mergedText(list);
+        if (value === '') {
+          showToast(t('insertEmpty'));
+          return;
+        }
+        const cwd = bindingRef.current?.cwd ?? rootRef.current;
+        if (cwd === '') {
+          showToast(t('sendNewUnavailable'));
+          return;
+        }
+        sendingRef.current = true;
+        setSending(true);
+        try {
+          const newSessionId = await createWorkspaceSession(cwd);
+          if (newSessionId === null) {
+            if (!insertValue(value)) await copyText(value);
+            showToast(t('sendNewUnavailable'));
+            return;
+          }
+          const accepted = await sendToSession(value, newSessionId);
+          if (accepted !== true) {
+            if (!insertValue(value)) await copyText(value);
+            showToast(t('sendUnavailable'));
+            return;
+          }
+          showToast(t('sendNewDone'));
+          const ids = new Set(
+            list.filter((segment) => segment.archived !== true).map((segment) => segment.id),
+          );
+          if (ids.size > 0 && (rootRef.current === '' || rootRef.current === cwd)) {
+            const archivedAt = new Date().toISOString();
+            const next = segmentsRef.current.map((segment) =>
+              (ids.has(segment.id) ? { ...segment, archived: true, archivedAt } : segment));
+            setSelection(new Set([...selectedRef.current].filter((id) => !ids.has(id))));
+            commitSegments(next);
+            await saveNowRef.current?.({ force: true });
+          }
+          const uiWorkspace = ctx.get('uiWorkspace');
+          if (uiWorkspace !== undefined && uiWorkspace !== null && typeof uiWorkspace.openSession === 'function') {
+            uiWorkspace.openSession(newSessionId);
+          }
+        } catch (reason) {
+          showToast(`${t('sendFailed')}: ${String(reason?.message ?? reason)}`);
+        } finally {
+          sendingRef.current = false;
+          setSending(false);
+        }
+      };
+
       const copyAll = async () => {
-        const value = mergedText(segmentsRef.current);
+        // Copy only active work: archived segments were already sent or filed
+        // away and must not leak back into a copy-all.
+        const value = mergedText(segmentsRef.current.filter((segment) => segment.archived !== true));
         if (value === '') {
           showToast(t('insertEmpty'));
           return;
@@ -2688,7 +3052,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         if (ui.minimized) return;
         if (event.button !== undefined && event.button !== 0) return;
         event.preventDefault?.();
-        event.stopPropagation?.();
+        event?.stopPropagation?.();
         const start = { px: event.clientX, py: event.clientY, width: ui.width, height: ui.height };
         resizeRef.current = start;
         setResizing(true);
@@ -2734,6 +3098,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const allSelected = activeSegments.length > 0 && selectedCount === activeSegments.length;
       const unsentCount = countUnsent(segments);
       const totalChars = segments.reduce((sum, segment) => sum + segment.text.length, 0);
+      const activeChars = activeSegments.reduce((sum, segment) => sum + segment.text.length, 0);
       const displayWidth = ui.width;
       const displayHeight = ui.minimized ? HEAD_H : ui.height;
       const fallbackX = Math.max(EDGE_GAP, ((typeof window !== 'undefined' && window.innerWidth) || 1280) - displayWidth - 24);
@@ -2766,9 +3131,20 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           {
             type: 'button',
             className: 'dsh-np-btn',
+            title: `${t('resetShortcut')} · Ctrl+Shift+0`,
+            'aria-label': t('resetShortcut'),
+            onClick: resetGeometry,
+          },
+          h(ResetIcon, { size: 15 }),
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-np-btn',
             title: t('copy'),
             'aria-label': t('copy'),
-            disabled: totalChars === 0,
+            disabled: activeChars === 0,
             onClick: copyAll,
           },
           h(CopyIcon, { size: 15 }),
@@ -2821,6 +3197,37 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         ),
       );
 
+      /** One icon that expands into current-session + new-session actions. */
+      const actionGroup = ({ size, primary, extra, disabled = false }) => {
+        const base = size === 'bar' ? 'dsh-np-btn' : 'dsh-np-segbtn';
+        const primaryProps = {
+          type: 'button',
+          className: base,
+          title: primary.title,
+          'aria-label': primary.title,
+          disabled,
+          onClick: primary.onClick,
+        };
+        if (primary.accent === true) primaryProps['data-accent'] = 'true';
+        return h(
+          'div',
+          { className: 'dsh-np-actiongroup', 'data-size': size },
+          h('button', primaryProps, primary.icon),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: `${base} dsh-np-group-extra`,
+              title: extra.title,
+              'aria-label': extra.title,
+              disabled,
+              onClick: extra.onClick,
+            },
+            h(NewSessionIcon, { size: 14 }),
+          ),
+        );
+      };
+
       const tools = h(
         'div',
         { className: 'dsh-np-tools' },
@@ -2838,18 +3245,19 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             selectedCount > 0 ? t('selected', { n: selectedCount }) : t('selectHint')),
         ),
         h('span', { className: 'dsh-np-spacer' }),
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'dsh-np-btn',
+        actionGroup({
+          size: 'bar',
+          disabled: selectedCount === 0,
+          primary: {
             title: selectedCount > 0 ? t('insertSelected', { n: selectedCount }) : t('insert'),
-            'aria-label': t('insert'),
-            disabled: selectedCount === 0,
             onClick: () => insertSegments(selectedActive),
+            icon: h(InsertIcon, { size: 14 }),
           },
-          h(InsertIcon, { size: 14 }),
-        ),
+          extra: {
+            title: selectedCount > 0 ? t('insertNewSelected', { n: selectedCount }) : t('insertNewSession'),
+            onClick: () => insertNewSession(selectedActive),
+          },
+        }),
         h(
           'button',
           {
@@ -2862,21 +3270,22 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           },
           h(ReplaceIcon, { size: 14 }),
         ),
-        h(
-          'button',
-          {
-            type: 'button',
-            className: 'dsh-np-btn',
-            'data-accent': 'true',
+        actionGroup({
+          size: 'bar',
+          disabled: selectedCount === 0 || sending,
+          primary: {
             title: selectedCount > 0
               ? (sending ? t('sending') : t('sendSelected', { n: selectedCount }))
               : t('send'),
-            'aria-label': t('send'),
-            disabled: selectedCount === 0 || sending,
             onClick: () => sendSegments(selectedActive),
+            icon: h(SendIcon, { size: 14 }),
+            accent: true,
           },
-          h(SendIcon, { size: 14 }),
-        ),
+          extra: {
+            title: selectedCount > 0 ? t('sendNewSelected', { n: selectedCount }) : t('sendNewSession'),
+            onClick: () => sendNewSession(selectedActive),
+          },
+        }),
         h(
           'button',
           {
@@ -3109,7 +3518,6 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                     'aria-label': t('segmentTitle'),
                     onClick: () => setTitleEditing(segment.id),
                   },
-                  t('titlePlaceholder'),
                 ),
             h(
               'button',
@@ -3122,18 +3530,19 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               },
               h(ImageIcon, { size: 14 }),
             ),
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'dsh-np-segbtn',
+            actionGroup({
+              size: 'card',
+              disabled: empty,
+              primary: {
                 title: t('insertSegment'),
-                'aria-label': t('insertSegment'),
-                disabled: empty,
                 onClick: () => insertSegments([segment]),
+                icon: h(InsertIcon, { size: 14 }),
               },
-              h(InsertIcon, { size: 14 }),
-            ),
+              extra: {
+                title: t('insertNewSession'),
+                onClick: () => insertNewSession([segment]),
+              },
+            }),
             h(
               'button',
               {
@@ -3146,18 +3555,19 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               },
               h(ReplaceIcon, { size: 14 }),
             ),
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'dsh-np-segbtn',
+            actionGroup({
+              size: 'card',
+              disabled: empty || sending,
+              primary: {
                 title: t('sendSegment'),
-                'aria-label': t('sendSegment'),
-                disabled: empty || sending,
                 onClick: () => sendSegments([segment]),
+                icon: h(SendIcon, { size: 14 }),
               },
-              h(SendIcon, { size: 14 }),
-            ),
+              extra: {
+                title: t('sendNewSession'),
+                onClick: () => sendNewSession([segment]),
+              },
+            }),
             h(
               'button',
               {
@@ -3185,6 +3595,18 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                 onClick: () => archiveSegment(segment.id),
               },
               h(ArchiveIcon, { size: 14 }),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dsh-np-segbtn',
+                'data-danger': 'true',
+                title: t('deleteActiveSegment'),
+                'aria-label': t('deleteActiveSegment'),
+                onClick: () => setDeleteConfirm(segment.id),
+              },
+              h(TrashIcon, { size: 14 }),
             ),
           ),
           h(
@@ -3382,7 +3804,17 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         h('span', { className: 'dsh-np-count' },
           `${t('chars', { n: totalChars })} · ${t('segments', { n: activeSegments.length })}`
           + (totalImages > 0 ? ` · ${t('images', { n: totalImages })}` : '')),
-        h('span', { className: 'dsh-np-hint', title: t('hint') }, t('hint')),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-np-hint',
+            title: t('hintNext'),
+            'aria-label': t('hintNext'),
+            onClick: () => setHintIndex((index) => (index + 1) % HINT_KEYS.length),
+          },
+          t(HINT_KEYS[hintIndex % HINT_KEYS.length]),
+        ),
       );
 
       const toastNode = toast === null
@@ -3422,6 +3854,107 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             onPointerDown: onResizePointerDown,
           });
 
+      const previewNode = previewImage === null
+        ? null
+        : h(
+            'div',
+            {
+              className: 'dsh-np-preview',
+              role: 'dialog',
+              'aria-modal': 'true',
+              'aria-label': t('imagePreview'),
+              onClick: () => setPreviewImage(null),
+            },
+            h('img', {
+              className: 'dsh-np-preview-img',
+              src: imageUrl(previewImage.path, binding.cwd),
+              alt: previewImage.name,
+              onClick: (event) => event?.stopPropagation?.(),
+            }),
+            h(
+              'div',
+              { className: 'dsh-np-preview-bar' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-np-preview-btn',
+                  title: t('openOriginal'),
+                  'aria-label': t('openOriginal'),
+                  onClick: (event) => {
+                    event?.stopPropagation?.();
+                    openOriginalImage(previewImage);
+                  },
+                },
+                h(OpenIcon, { size: 15 }),
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-np-preview-btn',
+                  title: t('closePreview'),
+                  'aria-label': t('closePreview'),
+                  onClick: (event) => {
+                    event?.stopPropagation?.();
+                    setPreviewImage(null);
+                  },
+                },
+                h(CloseIcon, { size: 15 }),
+              ),
+            ),
+            h('div', { className: 'dsh-np-preview-name' }, previewImage.name),
+          );
+
+      const deleteTarget = deleteConfirm === ''
+        ? undefined
+        : segments.find((segment) => segment.id === deleteConfirm && segment.archived !== true);
+      const confirmNode = deleteTarget === undefined
+        ? null
+        : h(
+            'div',
+            {
+              className: 'dsh-np-confirm',
+              role: 'alertdialog',
+              'aria-modal': 'true',
+              'aria-label': t('deleteConfirmTitle'),
+              onClick: () => setDeleteConfirm(''),
+            },
+            h(
+              'div',
+              {
+                className: 'dsh-np-confirm-card',
+                onClick: (event) => event?.stopPropagation?.(),
+              },
+              h('div', { className: 'dsh-np-confirm-title' }, t('deleteConfirmTitle')),
+              h('div', { className: 'dsh-np-confirm-body' }, t('deleteConfirmBody')),
+              h('div', { className: 'dsh-np-confirm-hint' }, t('deleteConfirmHint')),
+              h(
+                'div',
+                { className: 'dsh-np-confirm-actions' },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dsh-np-confirm-btn',
+                    onClick: () => setDeleteConfirm(''),
+                  },
+                  t('deleteConfirmCancel'),
+                ),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dsh-np-confirm-btn',
+                    'data-danger': 'true',
+                    onClick: () => deleteActiveSegment(deleteTarget.id),
+                  },
+                  t('deleteConfirmOk'),
+                ),
+              ),
+            ),
+          );
+
       const card = h(
         'section',
         {
@@ -3444,6 +3977,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         },
         header,
         body,
+        previewNode,
+        confirmNode,
         resizeHandle,
       );
 
@@ -3508,6 +4043,43 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           }
         };
       }, 'dsh-notepad: dictionaries');
+
+      // Register the geometry-reset chord with DSH's shortcut service so it
+      // reaches the page even when the host intercepts native key bindings.
+      const installResetShortcut = (scope) => {
+        const service = typeof scope.get === 'function' ? scope.get('shortcuts') : undefined;
+        if (service === undefined || service === null || typeof service.register !== 'function') return;
+        try {
+          scope.effect(() => service.register({
+            id: 'notepad.resetGeometry',
+            label: () => translate('resetShortcut'),
+            aliases: ['reset notepad', 'reset notepad geometry'],
+            defaults: {
+              'desktop:macos': { code: 'Digit0', modifiers: ['primary', 'shift'] },
+              'desktop:windows': { code: 'Digit0', modifiers: ['primary', 'shift'] },
+              'desktop:linux': { code: 'Digit0', modifiers: ['primary', 'shift'] },
+              'web:macos': { code: 'Digit0', modifiers: ['primary', 'shift'] },
+              'web:windows': { code: 'Digit0', modifiers: ['primary', 'shift'] },
+              'web:linux': { code: 'Digit0', modifiers: ['primary', 'shift'] },
+            },
+            regions: ['page', 'editable'],
+            modals: [],
+            resolve: () => ({ status: 'handled', run: requestUiReset }),
+          }), 'dsh-notepad: reset shortcut');
+          resetShortcutHandledByHost = true;
+        } catch (error) {
+          console.warn('[dsh-notepad] reset shortcut registration failed:', error?.message ?? error);
+        }
+      };
+      if (ctx.get('shortcuts') !== undefined) {
+        installResetShortcut(ctx);
+      } else if (typeof ctx.inject === 'function') {
+        try {
+          ctx.inject(['shortcuts'], (scoped) => installResetShortcut(scoped));
+        } catch {
+          /* The raw key listener and header button remain as fallbacks. */
+        }
+      }
 
       const slots = ctx.get('slots');
       if (slots === undefined || typeof slots.register !== 'function' || typeof slots.inject !== 'function') {

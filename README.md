@@ -1,8 +1,8 @@
 # dsh-notepad
 
-在 DeepSeek Harness 的会话界面里放一张**属于当前工作区**的分段便签浮窗：一行一个问题、一段一个卡片，回车就能新建下一段；需要时把某一段、或勾选后的多段一起插入 / 替换 / 发送到对话框。除了文字，也可以直接**粘贴或选择图片**，输入框里会用缩略芯片显示，插入 / 发送时按路径引用。0.4 起新分段置顶、点击序号选中、拖拽排序、合并多段；0.5 起空标题只在点击后显示输入框，上下方向键可切换分段，AI 优化只处理选中的分段且优化后按钮变为「撤销优化」，相同内容复用上次结果；自动刷新保持列表滚动位置，新增 `Ctrl/Cmd + Shift + 0` 复位浮窗位置和尺寸，浮窗也不会再越过窗口标题栏。
+在 DeepSeek Harness 的会话界面里放一张**属于当前工作区**的分段便签浮窗：一行一个问题、一段一个卡片，回车就能新建下一段；需要时把某一段、或勾选后的多段一起插入 / 替换 / 发送到对话框。除了文字，也可以直接**粘贴或选择图片**，输入框里会用缩略芯片显示并可点击预览。0.4 起新分段置顶、点击序号选中、拖拽排序、合并多段；0.5 起空标题只在点击后显示输入框，方向键可切换分段，AI 优化只处理选中的分段并支持撤销 / 缓存；0.6 起插入或发送按钮 hover 时展开成「当前会话 / 新会话」按钮组，图片可在浮窗内预览，可直接删除分段（二次确认、不可恢复），底部快捷键提示点击轮换，复制全部不再包含归档内容，发送行为跟随「设置 > 通用设置」的繁忙发送策略。
 
-> A per-workspace floating segmented notepad for DeepSeek Harness sessions. New segment cards lead the list; an empty title is a click-to-edit placeholder, arrow keys move between cards, and AI improvement only touches the selected cards — the button toggles to undo and unchanged content reuses the cached answer. Pending counts appear on the hidden launcher and the sidebar workspace row. Paste or pick images as in-input thumbnail chips; insert, replace, or send one segment or a multi-selection; sending archives the segment automatically. Auto refresh preserves the list scroll position, `Ctrl/Cmd + Shift + 0` resets the window geometry, the panel never covers the host title bar, and notes live in `<workspace>/.dsh/notepad.json` shared by every session from that workspace.
+> A per-workspace floating segmented notepad for DeepSeek Harness sessions. New segment cards lead the list; an empty title is a blank click target, arrow keys move between cards, and AI improvement only touches the selected cards — the button toggles to undo and unchanged content reuses the cached answer. In 0.6 the insert and send buttons expand on hover into current-session / new-session groups, image chips open an in-panel preview, active segments can be deleted after a confirmation that warns the action cannot be undone, the footer rotates shortcut tips, copy-all skips archived content, and sending follows the General Settings busy-send policy. Auto refresh preserves the list scroll position, `Ctrl/Cmd + Shift + 0` (or the header reset button) resets the geometry, the panel never covers the host title bar, and notes live in `<workspace>/.dsh/notepad.json` shared by every session from that workspace.
 
 ## 安装
 
@@ -16,7 +16,7 @@ dsh plugin --profile web add @restregular/dsh-notepad
 
 ```
 ┌────────────────────────────────────────────┐
-│ ● 记事本  [workspace]  复制 归档+ 折叠 最小化 │
+│ ● 记事本  [workspace]  复位 复制 归档+ 折叠 最小化 │
 │ ☐ 全选   勾选分段可批量操作   ↙ ⇄ ➤ ⊕ 合并 ✦ 归档 │
 │ ┌────────────────────────────────────────┐ │
 │ │ ☐ 01 [标题]                    🖼 ↙ ⇄ ➤ ✦ 归档 │
@@ -31,11 +31,17 @@ dsh plugin --profile web add @restregular/dsh-notepad
 ```
 
 - **新建分段置顶**：标题栏 `+` 或分段末尾回车会在列表顶部创建新卡片；卡片从上到下保持最近在前，拖拽后按你的顺序保存。
-- **标题**：空标题只显示「分段标题（可选）」占位，没有 hover 底色；点击后才出现输入框。已有标题的卡片直接显示输入框，边输入边自动保存；在输入框里清空后不会立刻消失，失焦才回到占位状态。
+- **标题**：空标题不显示任何占位文字，只保留一块可点击的空白；点击后才出现输入框。已有标题的卡片直接显示输入框，边输入边自动保存；在输入框里清空后不会立刻消失，失焦才回到空白状态。
 - **序号**：显示当前顺序（`01`、`02`…），点击可选中 / 取消选中这一段，拖动序号可调整卡片顺序。
 - **AI 优化**：勾选分段后，顶部工具栏的 ✦ 只优化选中的分段；卡片工具栏的 ✦ 优化此段。优化成功后，刚点过的按钮变成「撤销优化」，再点一次恢复原文；相同且未改动的标题 + 内容再次优化时直接复用上次结果，不再调用大模型。
 - **方向键**：光标在分段首行按 `↑` 跳到上一张卡片末尾；在末行按 `↓` 跳到下一张卡片开头。多行分段内部仍按正常文本光标移动。
-- **复位浮窗**：`Ctrl / Cmd + Shift + 0` 把位置和尺寸恢复为右下角的默认 `420 × 460`，最小化 / 归档展开等状态不变。
+- **插入 / 发送按钮组**：鼠标 hover 插入或发送按钮时，它会横向展开成两个按钮，并用细圆角边框框成一组：第一个作用于当前会话，第二个在新会话中插入 / 发送。新会话会创建在同一工作区；替换按钮没有按钮组。
+- **图片预览**：点击任意图片芯片会在浮窗内打开预览（带「打开原图」和关闭按钮），点击遮罩或按 `Esc` 关闭。
+- **删除分段**：未归档卡片上新增垃圾桶按钮，点击后弹窗二次确认，并明确提示删除后无法恢复；确认后直接删除，不进入归档，也不提供撤销。
+- **复制全部**：只复制未归档分段，归档内容不会混入结果。
+- **快捷键提示**：底部一次只显示一条快捷键提示，点击它会轮换显示下一条。
+- **发送行为**：发送按钮在智能体繁忙时使用「设置 > 通用设置 > 繁忙时的发送行为」中选择的排队 / 插话策略；空闲时按普通发送处理。
+- **复位浮窗**：`Ctrl / Cmd + Shift + 0` 或标题栏的复位按钮把位置和尺寸恢复为右下角的默认 `420 × 460`，最小化 / 归档展开等状态不变。
 - **合并**：勾选 2 段以上后点顶部工具栏的合并按钮，合并结果留在最靠上的选中位置。
 - **回车 / Enter**：把当前分段从光标处拆开，创建一张新的分段卡片（光标前的文字留在原卡片，光标后的文字进入新卡片）。在末尾回车就是新建一个空分段并置顶。
 - **Shift + Enter**：分段内换行。
@@ -48,7 +54,7 @@ dsh plugin --profile web add @restregular/dsh-notepad
 | --- | --- | --- |
 | 新建分段 | 标题栏 `+`，或分段末尾按回车 | 新卡片置顶并自动获得焦点 |
 | 编辑分段 | 点击卡片文本区 | 停止输入约 0.5 秒后自动保存 |
-| 分段标题 | 空标题卡片的占位 / 已有标题的输入框 | 空标题点击后才出现输入框；停止输入约 0.5 秒后自动保存 |
+| 分段标题 | 空标题的空白点击区 / 已有标题的输入框 | 空标题不显示文字和 hover 效果，点击后才出现输入框；停止输入约 0.5 秒后自动保存 |
 | 选中分段 | 点击左上角序号，或左侧复选框 | 序号与复选框状态同步；点击序号即可参与批量操作 |
 | 拖拽排序 | 按住左上角序号拖动到另一张卡片的上 / 下半区 | 松开后按新顺序保存，序号自动重排 |
 | 合并分段 | 勾选 2 段以上 → 顶部工具栏合并按钮 | 按当前显示顺序合并文字、标题和图片，可撤销 |
@@ -60,22 +66,27 @@ dsh plugin --profile web add @restregular/dsh-notepad
 | 添加图片（选择） | 卡片头部的图片按钮 | 桌面端直接用所选文件的宿主路径引入，不复制文件 |
 | 添加图片（粘贴） | 在分段文本区粘贴截图 / 图片 | 写入 `.dsh/notepad/images/`，再以该路径引入 |
 | 添加图片（拖入） | 把图片拖到分段文本区 | 优先使用宿主路径，浏览器拿不到路径时按粘贴方式保存 |
-| 图片芯片 | 分段输入框内 | 缩略图 + 文件名 + 移除按钮；点击缩略图打开原图 |
+| 图片芯片 | 分段输入框内 | 缩略图 + 文件名 + 移除按钮；点击缩略图在浮窗内预览，可再打开原图 |
 | 带图插入 / 发送 | 与文字相同入口 | 图片以 `![名称](路径)` 追加在分段文字之后 |
 | 单段插入 | 卡片上的左下箭头 | 插入到当前会话输入框光标处，不发送 |
 | 多段插入 | 勾选分段 → 工具栏左下箭头，或全选后操作 | 按卡片顺序用空行合并后一次插入 |
-| 替换对话框 | 卡片上的 ⇄，或勾选后工具栏 ⇄ | 用该段 / 多段合并内容替换整个输入框 |
+| 在新会话中插入 | hover 插入按钮后出现的第二个按钮 | 在同一工作区新建会话并打开，内容填进它的输入框 |
+| 替换对话框 | 卡片上的 ⇄，或勾选后工具栏 ⇄ | 用该段 / 多段合并内容替换整个输入框（没有按钮组） |
 | 单段发送 | 卡片上的纸飞机 | 直接发进当前会话；发送成功后自动归档该段 |
 | 多段发送 | 勾选分段 → 工具栏纸飞机 | 合并成一条消息发送；发送成功后自动归档这些段 |
+| 在新会话中发送 | hover 发送按钮后出现的第二个按钮 | 在同一工作区新建会话并发送，随后切换到该会话 |
 | 全选 | 列表上方「全选」复选框 | 一键选中所有未归档分段，再点一次取消 |
 | 归档 | 卡片上的归档图标，或工具栏归档图标 | 把分段移入归档区（不发送） |
 | 显示 / 隐藏归档 | 标题栏归档图标 | 展开 / 收起归档区，状态按浏览器记忆 |
 | 恢复 | 归档卡片上的恢复图标 | 把归档分段放回未归档列表 |
-| 删除 | 归档卡片上的垃圾桶 | **只有已归档分段可以删除**，可撤销 |
+| 删除（未归档） | 未归档卡片上的垃圾桶 | 跳过归档直接删除；弹窗二次确认并提示 **删除后无法恢复** |
+| 删除（已归档） | 归档卡片上的垃圾桶 | 删除归档分段，可撤销 |
 | 清空归档 | 归档区标题「清空归档」 | 批量删除归档，可撤销 |
-| 复制全部 | 标题栏复制按钮 | 复制所有分段（含归档），用空行合并 |
+| 复制全部 | 标题栏复制按钮 | 只复制未归档分段，用空行合并；归档内容不包含在内 |
+| 快捷键提示 | 底部的一条提示文字 | 点击轮换显示下一条快捷键说明 |
+| 发送策略 | 卡片 / 工具栏发送按钮 | 繁忙时按「设置 > 通用设置 > 繁忙时的发送行为」选择排队或插话 |
 | 调整尺寸 | 拖动右下角斜纹手柄 | 宽高按浏览器记忆，最小 320 × 240 |
-| 复位位置和尺寸 | `Ctrl/Cmd + Shift + 0` | 恢复默认 420 × 460 并停到右下角，其它状态不变 |
+| 复位位置和尺寸 | `Ctrl/Cmd + Shift + 0`，或标题栏复位按钮 | 恢复默认 420 × 460 并停到右下角，其它状态不变 |
 | 折叠 / 展开 | 标题栏上下折叠箭头 | 只保留标题栏，内容继续自动保存 |
 | 最小化 / 恢复 | 标题栏最小化图标，或 `Ctrl/Cmd + Shift + N` | 收成右下角小图标，带平滑过渡 |
 | 拖动位置 | 按住标题栏拖动 | 位置按浏览器记忆；不会越过 DSH 窗口最顶部的标题栏（最大化 / 最小化 / 关闭那一栏） |
@@ -118,8 +129,8 @@ dsh plugin --profile web add @restregular/dsh-notepad
 
   `text` 是 `segments`（含图片引用）用空行合并后的副本，方便人工查看，也兼容旧版本。旧版单段文件（只有 `text`）、v2/v3 分段文件和手动改成纯文本的文件会在读取时迁移；没有 `createdAt` 的旧笔记会按「最近在前」反转一次显示顺序，之后按卡片数组顺序保存（拖拽后的顺序不会被自动重排）。`images[].path` 工作区内用相对路径，工作区外保留绝对路径；`name` 仅用于显示和 Markdown 替代文本。`title` 最长 200 字符。
 - **粘贴的图片**保存在 `<工作区>/.dsh/notepad/images/`，由宿主接口原子写入，只接受 PNG / JPEG / WebP / GIF，单张最大 20 MB；笔记只保存路径，不内嵌 base64。**选择的图片**直接引用原路径，不复制。每段最多 20 张。
-- **删除图片芯片**会同时删除插件自己保存在 `.dsh/notepad/images/` 下的对应文件；引用工作区外原路径的图片只删引用，不碰原文件。删除已归档分段 / 清空归档时，未被其它分段引用的插件图片会在撤销窗口结束后自动清理。
-- 浮窗位置、尺寸、折叠 / 最小化 / 隐藏状态、归档区是否展开保存在浏览器 `localStorage` 的 `dsh-notepad.ui.v1` 中，按浏览器 / 设备生效，不写入工作区。位置会被限制在宿主标题栏下方（读取 DSH 的 `--dsh-frame-chrome-top` / `--dsh-frame-top-clearance`），`Ctrl/Cmd + Shift + 0` 可随时复位位置和尺寸。
+- **删除图片芯片**会同时删除插件自己保存在 `.dsh/notepad/images/` 下的对应文件；引用工作区外原路径的图片只删引用，不碰原文件。删除已归档分段 / 清空归档 / 直接删除未归档分段时，未被其它分段引用的插件图片会在撤销窗口（未归档删除没有撤销窗口，按同样延迟）结束后自动清理。
+- 浮窗位置、尺寸、折叠 / 最小化 / 隐藏状态、归档区是否展开保存在浏览器 `localStorage` 的 `dsh-notepad.ui.v1` 中，按浏览器 / 设备生效，不写入工作区。位置会被限制在宿主标题栏下方（读取 DSH 的 `--dsh-frame-chrome-top` / `--dsh-frame-top-clearance`），`Ctrl/Cmd + Shift + 0` 或标题栏复位按钮可随时复位位置和尺寸。
 - 每个工作区一份笔记，最多 **200 段 / 512 KB**（单段输入框限制 16 万字符，每段最多 20 张图片）。浮窗内是纯文本编辑，不做 Markdown 渲染；图片以缩略芯片展示。
 - 浮窗只在**会话视图**出现：打开设置等非会话页面时自动隐藏，回到会话后恢复。
 - 写入走宿主同源回环路由 `/dsh-notepad/api/note`，粘贴图片走 `/dsh-notepad/api/image`，AI 优化走 `/dsh-notepad/api/optimize`，侧边栏角标计数走 `/dsh-notepad/api/unsent`；这些都只接受 127.0.0.1 的同源请求，并且只允许当前会话的 cwd 或已注册工作区。图片接口只会在固定的 `.dsh/notepad/images/` 下写入 / 删除合法的图片文件，不能用来读写或删除工作区里的其它文件。AI 优化使用当前默认模型，未配置模型时返回 `unavailable`，不会影响记事本的其它功能。
@@ -129,9 +140,10 @@ dsh plugin --profile web add @restregular/dsh-notepad
 ## 实现
 
 - **Host**（`index.js` + `lib/note-store.js` + `lib/image-store.js`）：`ctx.inject(['webServer'])` 注册 `/dsh-notepad/api` 下的 `GET/PUT /note`、`POST/DELETE /image`、`GET /unsent` 与 `POST /optimize`，用临时文件 + rename 原子写入 `.dsh/notepad.json`；`GET` 返回 `segments`（含 `title` / `createdAt` / `images`）与合并后的 `text`，`PUT` 接受 `{ segments: [...] }`，也兼容旧的 `{ text }`。`POST /image` 校验 base64、MIME 与文件签名后写入 `.dsh/notepad/images/`；`DELETE /image` 只允许删除该目录下的普通文件。`/unsent` 为已注册工作区统计未发送段数；`/optimize` 先用 `workspace + title + text` 查进程内缓存，命中时返回 `{ cached: true }`，否则通过 `agentDefaultModel.currentSelection()` + `llm.prepareCall()` 调用当前默认模型，流式拼接文本后写入缓存并返回。
-- **Client**（`client.js`）：整个 bundle 包在 IIFE 里；通过 `shell.overlay` 注册浮窗，读取 `uiSession.adapter.current` 得到当前会话与工作区。标题、序号、拖拽排序和合并都在本地分段数组上完成，数组顺序就是保存顺序；空标题用占位按钮渲染，点击后才挂载输入框，`↑` / `↓` 在首 / 末行时把焦点和光标移到相邻卡片。侧边栏角标用 `MutationObserver` 监听 `[data-row-key^="workspace:"]` 并把未发送数量写成 `data-np-unsent` 属性，由 CSS 伪元素显示。粘贴图片用 `FileReader` 读成 base64 交给宿主保存；选择 / 拖入图片优先通过桌面桥 `__DSH_HOST_PATHS__.pathFor(file)` 拿宿主路径。插入 / 替换通过会话绑定里的 `inputActions.captureInsertion()/insertText()` 与 `setDraft()`；发送优先走 `sessions.scope(id).conversation.send()`，并回退到 `sessions.binding(id).session.prompt()`。图片在插入 / 发送时以 Markdown 图片语法追加，聊天记录里的 DSH 渲染器会按工作区 cwd 解析这些路径。
+- **Client**（`client.js`）：整个 bundle 包在 IIFE 里；通过 `shell.overlay` 注册浮窗，读取 `uiSession.adapter.current` 得到当前会话与工作区。标题、序号、拖拽排序和合并都在本地分段数组上完成，数组顺序就是保存顺序；空标题用无内容的点击区渲染，点击后才挂载输入框，`↑` / `↓` 在首 / 末行时把焦点和光标移到相邻卡片。插入 / 发送按钮 hover 时用 CSS 横向展开成当前会话 / 新会话两个按钮，并用细圆角边框包住；新会话通过 `uiWorkspace.startSession()`（插入）或 `sessions.create()` + 会话发送（发送）完成。图片芯片打开面板内的预览遮罩，支持打开原图与 `Esc` 关闭；未归档删除走自定义二次确认弹窗，确认后立即从分段数组移除并清理未被引用的图片。复制全部只合并未归档分段；底部快捷键提示是一个按钮，每次只渲染一条并通过 `HINT_KEYS` 轮换。侧边栏角标用 `MutationObserver` 监听 `[data-row-key^="workspace:"]` 并把未发送数量写成 `data-np-unsent` 属性，由 CSS 伪元素显示。粘贴图片用 `FileReader` 读成 base64 交给宿主保存；选择 / 拖入图片优先通过桌面桥 `__DSH_HOST_PATHS__.pathFor(file)` 拿宿主路径。插入 / 替换通过会话绑定里的 `inputActions.captureInsertion()/insertText()` 与 `setDraft()`；发送优先按繁忙策略选择 `sessions.scope(id).conversation.send()`（排队）或 `sessions.binding(id).session.prompt(..., 'steer')`（插话），steer 不可用时回退到排队。图片在插入 / 发送时以 Markdown 图片语法追加，聊天记录里的 DSH 渲染器会按工作区 cwd 解析这些路径。
 - AI 优化只改分段文字，不动标题和图片；单段优化后该卡片按钮变为「撤销优化」，批量优化后工具栏按钮变为「撤销优化」，撤销会恢复优化前的文字。优化结果按内容缓存在客户端与宿主两侧，相同内容再次优化不会重复请求；没有默认模型或模型调用失败时只提示错误，不影响笔记读写。
-- 浮窗坐标同时受视口和宿主标题栏约束：拖动、调整尺寸、窗口缩放和快捷键复位都走同一个 `clampUi()`，最小 `top` 取 `--dsh-frame-chrome-top`（全屏时为 0）/ `--dsh-frame-top-clearance` 再加 8px。
+- 浮窗坐标同时受视口和宿主标题栏约束：拖动、调整尺寸、窗口缩放、标题栏复位按钮和快捷键复位都走同一个 `clampUi()`，最小 `top` 取 `--dsh-frame-chrome-top`（全屏时为 0）/ `--dsh-frame-top-clearance` 再加 8px。复位快捷键优先注册到 DSH 的 `shortcuts` 服务（默认 `Ctrl/Cmd + Shift + 0`、`regions` 含 `editable`），注册失败时保留原始 keydown 监听，标题栏也有可点击的复位按钮。
+- 发送模式与 DSH 输入框一致：读取 `sessions.list` 的 `running`，繁忙时读取 `configForms.get('ui-conversation')` 快照里的 `busyEnter`（`queue` / `steer`）；空闲时始终排队。
 - 文案通过宿主 `locale` 服务注册中英文；找不到 locale 时按浏览器语言回退。
 
 ## 开发
@@ -155,14 +167,16 @@ node test/package.test.mjs
 npm test
 ```
 
-`test/client-smoke.mjs` 会真正执行 `apply(ctx)` 并渲染浮窗，覆盖：分段加载、编辑自动保存、自动刷新保持列表滚动位置、新分段置顶、空标题占位与点击后出现输入框、标题自动保存、序号选中、方向键跨分段切换光标、合并、单段 / 选中分段 AI 优化、优化后按钮切换为撤销、相同内容命中缓存、拖拽排序、未发送角标、侧边栏工作区角标、回车拆分、单段/多段插入与替换、单段/多段发送与自动归档、归档显示隐藏、归档恢复与删除（含撤销）、全选、折叠、最小化 / 恢复、拖动调整尺寸、标题栏下方位置限制、全局快捷键与复位快捷键、深色模式与字体 CSS、重复执行 bundle 的兼容性，以及粘贴 / 选择图片、图片芯片、删除芯片时清理磁盘文件与带图插入发送。
+`test/client-smoke.mjs` 会真正执行 `apply(ctx)` 并渲染浮窗，覆盖：分段加载、编辑自动保存、自动刷新保持列表滚动位置、新分段置顶、空标题空白点击区与点击后出现输入框、标题自动保存、序号选中、方向键跨分段切换光标、合并、单段 / 选中分段 AI 优化、优化后按钮切换为撤销、相同内容命中缓存、插入 / 发送 hover 按钮组与在新会话中插入 / 发送、图片面板内预览、未归档删除的二次确认与不可撤销、底部快捷键轮换、复制全部排除归档、繁忙发送策略、拖拽排序、未发送角标、侧边栏工作区角标、回车拆分、单段/多段插入与替换、单段/多段发送与自动归档、归档显示隐藏、归档恢复与删除（含撤销）、全选、折叠、最小化 / 恢复、拖动调整尺寸、标题栏下方位置限制、全局快捷键与复位快捷键、DSH `shortcuts` 命令注册、深色模式与字体 CSS、重复执行 bundle 的兼容性，以及粘贴 / 选择图片、图片芯片、删除芯片时清理磁盘文件与带图插入发送。
 
 ## 已知限制
 
-- 浮窗不会自动把内容推给 Agent；发送使用当前会话的排队发送，需要 Agent 可接收消息。
+- 浮窗不会自动把内容推给 Agent；发送使用当前会话的发送接口，繁忙时按「设置 > 通用设置」的繁忙发送策略排队或插话。
 - 发送按钮依赖 DSH 的会话接口；接口不可用时降级为插入输入框并提示。
+- 「在新会话中插入 / 发送」依赖 DSH 的 `uiWorkspace` / `sessions` 服务；不可用时插入会降级为复制，发送会提示失败。
 - 图片只支持 PNG / JPEG / WebP / GIF，单张最大 20 MB、每段最多 20 张；其它附件类型暂不支持。
 - AI 优化需要 DSH 里已配置默认模型；未配置时按钮会提示不可用，记笔记本身不受影响。优化缓存保存在宿主进程内，重启 DSH 或切换默认模型后，相同内容会再请求一次。
+- 删除未归档分段不可撤销；确认后不会进入归档，只会在延迟窗口后清理未被其它分段引用的插件图片。
 - 删除图片芯片会删除插件目录里的文件；如果同一路径仍被其它分段引用，则保留文件。选择的原路径图片只删引用，不删除原图。
 - 网页版没有 `__DSH_HOST_PATHS__` 桥，选择 / 拖入的图片会像粘贴一样先复制到 `.dsh/notepad/images/`。
 - 图片在浮窗里用缩略芯片表示，不提供富文本行内图文混排；插入 / 发送后由聊天记录按 Markdown 渲染。

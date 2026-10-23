@@ -1,7 +1,7 @@
 {
   "name": "@restregular/dsh-notepad",
-  "version": "0.5.0",
-  "description": "Notepad — a per-workspace floating notepad in the DeepSeek Harness session view: newest segment cards first with titles that appear only after a click, drag to reorder, merge selected segments, arrow keys to move between cards, AI improve limited to the selected segments with a one-click undo and cached results, image chips with automatic file cleanup, pending-count badges on the hidden button and the sidebar workspace, batch insert / replace / send, archive management, scroll position kept across automatic refreshes, resizable panel, Ctrl+Shift+0 geometry reset, a title-bar-safe position, and dark-mode styling. · 记事本 — 在 DeepSeek Harness 会话界面显示一个按工作区共享的分段便签浮窗：新分段置顶且空标题只在点击后显示输入框，可拖拽排序、合并选中分段、上下方向键切换分段、只对选中分段做 AI 优化，优化后按钮变为撤销并复用相同内容的缓存结果；图片芯片删除时自动清理磁盘文件；隐藏按钮与侧边栏工作区显示未发送数量角标；支持单段/多段插入、替换与发送，发送自动归档，归档可显示隐藏和恢复删除；自动刷新保持列表滚动位置；可调整尺寸，Ctrl+Shift+0 复位位置和尺寸，浮窗不会越过窗口标题栏，并适配深色模式。",
+  "version": "0.6.0",
+  "description": "Notepad — a per-workspace floating notepad in the DeepSeek Harness session view: newest segment cards first with click-to-edit titles, drag to reorder, merge selected segments, arrow-key navigation, AI improve limited to selected segments with undo and cached results, hover insert / send groups that also target a fresh session, in-panel image previews, direct delete with a confirmation, rotating shortcut tips, copy-all that skips archived segments, the General Settings busy-send policy, image chips with automatic file cleanup, pending-count badges on the hidden button and sidebar workspace, scroll-safe auto refresh, resizable title-bar-safe panel, Ctrl+Shift+0 geometry reset, and dark-mode styling. · 记事本 — 在 DeepSeek Harness 会话界面显示一个按工作区共享的分段便签浮窗：新分段置顶且空标题只在点击后显示输入框，可拖拽排序、合并选中分段、上下方向键切换分段、只对选中分段做 AI 优化，优化后按钮变为撤销并复用缓存结果；插入 / 发送按钮 hover 时展开为「当前会话 / 新会话」按钮组，图片支持面板内预览，可直接删除分段但需二次确认，底部快捷键提示可点击轮换，复制全部不再包含归档分段，发送行为跟随「设置 > 通用设置」中的繁忙发送策略；图片芯片删除时自动清理磁盘文件；隐藏按钮与侧边栏工作区显示未发送数量角标；自动刷新保持列表滚动位置；可调整尺寸，Ctrl+Shift+0 复位位置和尺寸，浮窗不会越过窗口标题栏，并适配深色模式。",
   "icon": "./icon.svg",
   "type": "module",
   "main": "index.js",
@@ -34,7 +34,9 @@
         "@deepseek-ai/dsh-client-ui-layout",
         "@deepseek-ai/dsh-api-session-controller",
         "@deepseek-ai/dsh-client-ui-session",
-        "@deepseek-ai/dsh-client-ui-conversation"
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-shortcuts"
       ]
     }
   },

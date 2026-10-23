@@ -229,6 +229,18 @@ const windowShim = {
 const loadedModules = [];
 globalThis.window = windowShim;
 globalThis.document = documentShim;
+const clipboardWrites = [];
+Object.defineProperty(globalThis, 'navigator', {
+  configurable: true,
+  value: {
+    language: 'zh-CN',
+    clipboard: {
+      async writeText(text) {
+        clipboardWrites.push(text);
+      },
+    },
+  },
+});
 globalThis.FileReader = class FileReader {
   readAsDataURL(file) {
     this.result = `data:${file?.type ?? 'image/png'};base64,${file?.__base64 ?? 'AAAA'}`;
@@ -407,11 +419,12 @@ const currentSource = {
   getSnapshot: () => sessionState,
   subscribe: () => () => {},
 };
+let sessionRunning = false;
 const listSource = {
   getSnapshot: () => ({
     phase: 'ready',
     ids: [SESSION],
-    byId: { [SESSION]: { id: SESSION, cwd: ROOT, retainedBy: { mainView: 1 } } },
+    byId: { [SESSION]: { id: SESSION, cwd: ROOT, running: sessionRunning, retainedBy: { mainView: 1 } } },
   }),
   subscribe: () => () => {},
 };
@@ -424,17 +437,59 @@ const conversation = {
 const scopedContext = {
   get(name) { return name === 'conversation' ? conversation : undefined; },
 };
+const promptModes = [];
+const submittedModes = [];
 const sessionFace = {
-  beginSubmission: () => ({ requestId: 'echo-1', abandon() {} }),
+  beginSubmission(input) {
+    submittedModes.push(input.mode);
+    return { requestId: 'echo-1', abandon() {} };
+  },
   async prompt(content, mode) {
+    promptModes.push(mode);
     sent.push(content.map((part) => part.text).join(''));
     return { ok: true, value: { accepted: true, mode } };
   },
 };
+let createdSessions = 0;
+const createdSessionRequests = [];
 const sessionsService = {
   list: listSource,
   scope: () => scopedContext,
   binding: () => ({ session: sessionFace }),
+  async create(options) {
+    createdSessions += 1;
+    createdSessionRequests.push(options);
+    return { ok: true, value: { sessionId: `session-new-${createdSessions}` } };
+  },
+};
+
+const uiWorkspace = {
+  startSessionCalls: [],
+  openSessionCalls: [],
+  startSession(workspaceId, options) {
+    this.startSessionCalls.push({ workspaceId, options });
+  },
+  openSession(sessionId) {
+    this.openSessionCalls.push(sessionId);
+  },
+  workspaces: {
+    list: {
+      getSnapshot: () => ({
+        items: [{ workspaceId: 'ws-demo', path: ROOT, sessionIds: [SESSION] }],
+      }),
+    },
+  },
+};
+
+const busyEnter = { value: 'queue' };
+const configForms = {
+  get(namespace) {
+    if (namespace !== 'ui-conversation') return undefined;
+    return {
+      getSnapshot: () => ({ value: { busyEnter: busyEnter.value } }),
+      subscribe: () => () => {},
+    };
+  },
 };
 
 const localeRegistered = [];
@@ -478,6 +533,8 @@ const ctx = {
     if (name === 'locale') return locale;
     if (name === 'uiSession') return { adapter: { current: currentSource } };
     if (name === 'sessions') return sessionsService;
+    if (name === 'uiWorkspace') return uiWorkspace;
+    if (name === 'configForms') return configForms;
     return undefined;
   },
   effect(fn) {
@@ -497,8 +554,11 @@ assert.ok(!styleTags[0].textContent.includes('ui-monospace'), 'no monospace font
 assert.ok(styleTags[0].textContent.includes('body[data-ds-dark-theme]'), 'dark-mode overrides exist');
 assert.ok(styleTags[0].textContent.includes('transition:height'), 'collapse animation exists');
 assert.ok(styleTags[0].textContent.includes('visibility:hidden'), 'hide animation exists');
-assert.ok(styleTags[0].textContent.includes('.dsh-np-title-add'), 'empty titles use a placeholder button');
-assert.ok(!styleTags[0].textContent.includes('.dsh-np-title-add:hover'), 'the empty-title placeholder has no hover style');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-title-add'), 'empty titles use a click target');
+assert.ok(!styleTags[0].textContent.includes('.dsh-np-title-add:hover'), 'the empty-title click target has no hover style');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-actiongroup'), 'hover action groups have styles');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-preview'), 'image preview styles exist');
+assert.ok(styleTags[0].textContent.includes('.dsh-np-confirm'), 'delete confirmation styles exist');
 assert.deepEqual(localeRegistered.map((entry) => entry.namespace), ['dsh-notepad']);
 const overlay = registrations.find((entry) => entry.options.name === 'shell.overlay');
 assert.ok(overlay, 'registers shell.overlay');
@@ -794,6 +854,9 @@ assert.equal(copyButton.element.props.disabled, false);
 await copyButton.element.props.onClick();
 const afterCopy = await renderRounds(1);
 assert.ok(afterCopy.text.includes('已复制'), 'copy toast shown');
+assert.equal(clipboardWrites.at(-1), '第一', 'copy-all writes only active segments');
+assert.ok(!clipboardWrites.at(-1).includes('已归档内容'), 'copy-all never includes archived content');
+assert.ok(!clipboardWrites.at(-1).includes('第二段内容'), 'copy-all never includes other archived content');
 
 // Images: pick keeps the host path, paste uploads into the plugin dir ---------
 const imageInput = afterCopy.seen.find(({ element }) => element.type === 'input' && element.props.type === 'file');
@@ -816,7 +879,22 @@ const pickedSrc = afterPick.seen.find(({ element }) => element.type === 'img').e
 assert.ok(String(pickedSrc).includes('api/file?path='), 'thumbnail uses the authenticated file route');
 assert.ok(String(pickedSrc).includes('picked.png'));
 
-const imageEditor = findByClass(afterPick.seen, 'dsh-np-editor');
+// Image preview ----------------------------------------------------------
+const openImageButton = afterPick.seen.find(({ element }) => element.type === 'button'
+  && element.props['aria-label'] === '打开图片');
+assert.ok(openImageButton, 'image chips expose a preview button');
+openImageButton.element.props.onClick();
+const afterPreview = await renderRounds(1);
+assert.ok(findByClass(afterPreview.seen, 'dsh-np-preview'), 'clicking an image chip opens the in-panel preview');
+const previewImg = afterPreview.seen.find(({ element }) => element.type === 'img'
+  && element.props.className === 'dsh-np-preview-img');
+assert.ok(previewImg, 'the preview renders the image');
+assert.ok(String(previewImg.element.props.src).includes('picked.png'));
+await findByTitle(afterPreview.seen, '关闭预览').element.props.onClick();
+const afterPreviewClose = await renderRounds(1);
+assert.equal(findByClass(afterPreviewClose.seen, 'dsh-np-preview'), undefined, 'the preview closes');
+
+const imageEditor = findByClass(afterPreviewClose.seen, 'dsh-np-editor');
 assert.ok(imageEditor, 'image editor wrapper exists');
 let prevented = 0;
 imageEditor.element.props.onPaste({
@@ -927,15 +1005,29 @@ assert.equal(arrowNodes[0].caret, 1, 'ArrowUp puts the caret at the end of the p
 const titleInputsBefore = findAllByClass(afterAB.seen, 'dsh-np-title-input');
 const titleAdds = findAllByClass(afterAB.seen, 'dsh-np-title-add');
 assert.equal(titleInputsBefore.length, 0, 'empty titles do not render an input');
-assert.equal(titleAdds.length, 3, 'each empty title exposes a clickable placeholder');
+assert.equal(titleAdds.length, 3, 'each empty title exposes a click target');
+assert.ok(!afterAB.text.includes('分段标题（可选）'), 'empty titles render no placeholder text');
+assert.equal(titleAdds[0].element.props.children, undefined, 'the empty-title click target is blank');
 titleAdds[0].element.props.onClick();
 const afterTitleClick = await renderRounds(1);
 const revealedTitleInputs = findAllByClass(afterTitleClick.seen, 'dsh-np-title-input');
-assert.equal(revealedTitleInputs.length, 1, 'clicking the placeholder reveals the title input');
+assert.equal(revealedTitleInputs.length, 1, 'clicking the blank title area reveals the title input');
 assert.equal(revealedTitleInputs[0].element.props.autoFocus, true, 'the revealed title input is focused');
 revealedTitleInputs[0].element.props.onChange({ target: { value: '合并标题' } });
 const afterTitle = await renderRounds(1);
 assert.equal(findAllByClass(afterTitle.seen, 'dsh-np-title-input')[0].element.props.value, '合并标题');
+
+// Insert / send hover groups ----------------------------------------------
+assert.equal(findAllByClass(afterTitle.seen, 'dsh-np-actiongroup').length, 8,
+  'the toolbar and every card wrap insert / send in an expanding group');
+assert.equal(findAllByTitle(afterTitle.seen, '在新会话中插入').length, 4,
+  'each insert button exposes a new-session action');
+assert.equal(findAllByTitle(afterTitle.seen, '在新会话中发送').length, 4,
+  'each send button exposes a new-session action');
+assert.equal(findAllByTitle(afterTitle.seen, '替换此段').length, 6,
+  'replace buttons stay separate on active and archived cards');
+assert.equal(findAllByTitle(afterTitle.seen, '替换为选中的 2 段').length, 0, 'no selection yet');
+assert.equal(findAllByTitle(afterTitle.seen, '替换输入框内容').length, 1, 'the toolbar replace button stays ungrouped');
 
 const indexes = findAllByClass(afterTitle.seen, 'dsh-np-index');
 assert.equal(indexes.length, 3, 'each card exposes a clickable index');
@@ -1114,6 +1206,123 @@ assert.equal(resetUi.height, 460, 'reset restores the default height');
 assert.equal(resetUi.x, 1280 - 420 - 24, 'reset parks the card at its default left');
 assert.equal(resetUi.y, 800 - 460 - 24, 'reset parks the card at its default bottom');
 assert.ok(afterReset.text.includes('已复位浮窗位置和尺寸'), 'reset shows feedback');
+assert.ok(findByTitle(afterReset.seen, '复位记事本位置和尺寸 · Ctrl+Shift+0'),
+  'the header exposes a clickable reset button too');
+
+// Footer shortcut hint cycles --------------------------------------------
+const hintButton = findByClass(afterReset.seen, 'dsh-np-hint');
+assert.ok(hintButton, 'the footer shows one shortcut hint');
+assert.equal(hintButton.element.type, 'button', 'the hint is clickable');
+const firstHint = hintButton.element.props.children;
+assert.equal(firstHint, 'Enter 新建分段');
+hintButton.element.props.onClick();
+const afterHint = await renderRounds(1);
+const nextHint = findByClass(afterHint.seen, 'dsh-np-hint').element.props.children;
+assert.equal(nextHint, 'Shift+Enter 分段内换行', 'clicking the hint rotates to the next shortcut');
+assert.notEqual(nextHint, firstHint);
+
+// Delete an active segment with confirmation ------------------------------
+const deleteActiveButtons = findAllByTitle(afterHint.seen, '删除此段（不可恢复）');
+assert.equal(deleteActiveButtons.length, 2, 'every active card exposes a delete button');
+await deleteActiveButtons[0].element.props.onClick();
+const afterDeletePrompt = await renderRounds(1);
+const confirmDialog = findByClass(afterDeletePrompt.seen, 'dsh-np-confirm');
+assert.ok(confirmDialog, 'deleting an active segment opens a confirmation dialog');
+assert.ok(afterDeletePrompt.text.includes('删除后无法恢复'), 'the dialog warns that deletion cannot be undone');
+const confirmButtons = findAllByClass(afterDeletePrompt.seen, 'dsh-np-confirm-btn');
+assert.equal(confirmButtons.length, 2);
+await confirmButtons[0].element.props.onClick();
+const afterDeleteCancel = await renderRounds(1);
+assert.equal(findByClass(afterDeleteCancel.seen, 'dsh-np-confirm'), undefined, 'cancelling closes the dialog');
+assert.equal(textareas(afterDeleteCancel.seen).length, 2, 'cancelling keeps both segments');
+
+await findAllByTitle(afterDeleteCancel.seen, '删除此段（不可恢复）')[0].element.props.onClick();
+const afterDeletePromptAgain = await renderRounds(1);
+const confirmDeleteButton = findAllByClass(afterDeletePromptAgain.seen, 'dsh-np-confirm-btn')
+  .find(({ element }) => element.props['data-danger'] === 'true');
+assert.ok(confirmDeleteButton, 'the dialog has a destructive confirm button');
+await confirmDeleteButton.element.props.onClick();
+const afterActiveDelete = await renderRounds(2);
+assert.equal(textareas(afterActiveDelete.seen).length, 1, 'the active segment is deleted directly');
+assert.equal(afterActiveDelete.seen.filter(({ element }) => element.props?.className === 'dsh-np-toast-action').length, 0,
+  'an irreversible delete offers no undo');
+assert.ok(afterActiveDelete.text.includes('已删除'));
+
+// New-session insert / send ----------------------------------------------
+const insertNewButton = findByTitle(afterActiveDelete.seen, '在新会话中插入');
+assert.ok(insertNewButton, 'the insert group exposes the new-session action');
+const startSessionCallsBefore = uiWorkspace.startSessionCalls.length;
+await insertNewButton.element.props.onClick();
+assert.equal(uiWorkspace.startSessionCalls.length, startSessionCallsBefore + 1);
+assert.deepEqual(uiWorkspace.startSessionCalls.at(-1).options, {
+  prompt: '优化：A\n\nB',
+  clearPreviousDraft: true,
+});
+assert.ok((await renderRounds(1)).text.includes('已在新会话中填入内容'));
+
+const sendNewButton = findByTitle(afterActiveDelete.seen, '在新会话中发送');
+assert.ok(sendNewButton, 'the send group exposes the new-session action');
+const sentBeforeNew = sent.length;
+await sendNewButton.element.props.onClick();
+const afterSendNew = await renderRounds(3);
+assert.equal(createdSessions, 1, 'sending in a new session creates it first');
+assert.equal(createdSessionRequests.at(-1).cwd, ROOT);
+assert.equal(sent.length, sentBeforeNew + 1);
+assert.equal(sent.at(-1), '优化：A\n\nB', 'the new session receives the segment text');
+assert.equal(uiWorkspace.openSessionCalls.at(-1), 'session-new-1', 'the new session is opened');
+assert.equal(textareas(afterSendNew.seen).length, 0, 'sending in a new session archives the segment');
+assert.ok(afterSendNew.text.includes('已在新会话中发送'));
+
+// Busy-Enter send policy -------------------------------------------------
+await pressButton(afterSendNew.seen, '新建分段');
+const afterBusyAdd = await renderRounds(2);
+const busyTextarea = textareas(afterBusyAdd.seen)[0];
+busyTextarea.element.props.onChange({ target: { value: '忙碌发送' } });
+const afterBusyText = await renderRounds(1);
+sessionRunning = true;
+busyEnter.value = 'steer';
+const sendModesBefore = promptModes.length;
+await findAllByTitle(afterBusyText.seen, '发送此段')[0].element.props.onClick();
+const afterBusySend = await renderRounds(3);
+assert.equal(submittedModes.at(-1), 'steer', 'the busy send uses the configured steer mode');
+assert.equal(promptModes.length, sendModesBefore + 1);
+assert.equal(promptModes.at(-1), 'steer', 'the session prompt carries the steer mode');
+assert.equal(sent.at(-1), '忙碌发送');
+sessionRunning = false;
+busyEnter.value = 'queue';
+assert.equal(textareas(afterBusySend.seen).length, 0, 'the steer send archives the segment');
+
+// Host shortcut registration ---------------------------------------------
+const registeredShortcuts = [];
+const faceTwo = module.factory((spec) => {
+  if (spec === 'react') return React;
+  throw new Error(`unexpected require("${spec}")`);
+});
+faceTwo.apply({
+  get(name) {
+    if (name === 'slots') {
+      return {
+        inject(overlayName, factory) { factory(); return () => {}; },
+        register() { return () => {}; },
+      };
+    }
+    if (name === 'shortcuts') {
+      return {
+        register(command) { registeredShortcuts.push(command); return () => {}; },
+      };
+    }
+    return undefined;
+  },
+  effect(fn) { return fn(); },
+});
+assert.equal(registeredShortcuts.length, 1, 'the client registers the reset command with DSH shortcuts');
+const resetCommand = registeredShortcuts[0];
+assert.equal(resetCommand.id, 'notepad.resetGeometry');
+assert.deepEqual(resetCommand.defaults['desktop:windows'], { code: 'Digit0', modifiers: ['primary', 'shift'] });
+assert.deepEqual(resetCommand.defaults['web:windows'], { code: 'Digit0', modifiers: ['primary', 'shift'] });
+assert.ok(resetCommand.regions.includes('editable'), 'the reset shortcut also works while typing');
+assert.equal(resetCommand.resolve().status, 'handled');
+assert.equal(typeof resetCommand.resolve().run, 'function');
 
 // UI persistence ---------------------------------------------------------
 const storedUi = JSON.parse(storage.get('dsh-notepad.ui.v1'));
