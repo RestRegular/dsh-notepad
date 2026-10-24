@@ -59,7 +59,7 @@ window.__ModuleLoader__.load({
     const MAX_IMAGES = 20;
     const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
     const MAX_OPTIMIZE_CHARS = 60000;
-    const SIDEBAR_REFRESH_MS = 20000;
+    const SIDEBAR_REFRESH_MS = 15000;
     const IMAGE_DELETE_DELAY = 5000;
     const OPTIMIZE_CACHE_LIMIT = 100;
     const EDGE_GAP = 8;
@@ -1870,6 +1870,71 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       return String(value ?? '').replace(/\\/gu, '/').replace(/\/+$/u, '');
     }
 
+    /** Comparison key for one directory: drive / UNC paths ignore case. */
+    function workspacePathKey(value) {
+      const text = normalizedCwd(value);
+      return /^[A-Za-z]:\//u.test(text) || text.startsWith('//') ? text.toLowerCase() : text;
+    }
+
+    /**
+     * Resolve the registered Workspace that owns a Session.
+     *
+     * The Session's Workspace membership is authoritative: the same directory
+     * can be spelled several ways (drive case, junction, mapped drive), and a
+     * plain string compare used to leave the live sidebar badge without a
+     * Workspace id — it then only caught up on the slow polling refresh.
+     *
+     * @param ctx - plugin context; the Workspace projection is read when open.
+     * @param cwd - working directory of the Session the note reads.
+     * @param sessionId - the Session; its membership wins over a path match.
+     * @param candidates - Workspace registry rows from the counts response.
+     * @returns the Workspace id, or '' when no Workspace claims the Session.
+     */
+    function resolveWorkspaceId(ctx, cwd, sessionId, candidates) {
+      const target = workspacePathKey(cwd);
+      const list = Array.isArray(candidates) ? candidates : [];
+      let items = [];
+      try {
+        const snapshot = ctx?.get?.('workspaces')?.list?.getSnapshot?.();
+        if (Array.isArray(snapshot?.items)) items = snapshot.items;
+      } catch {
+        /* The Workspace projection may still be opening. */
+      }
+      if (typeof sessionId === 'string' && sessionId !== '') {
+        const member = items.find((item) =>
+          Array.isArray(item?.sessionIds) && item.sessionIds.includes(sessionId));
+        if (typeof member?.workspaceId === 'string' && member.workspaceId !== '') return member.workspaceId;
+      }
+      if (target !== '') {
+        const projected = items.find((item) =>
+          typeof item?.workspaceId === 'string' && item.workspaceId !== ''
+          && item?.path !== undefined && workspacePathKey(item.path) === target);
+        if (projected !== undefined) return projected.workspaceId;
+        const registered = list.find((item) =>
+          typeof item?.id === 'string' && item.id !== ''
+          && item?.path !== undefined && workspacePathKey(item.path) === target);
+        if (registered !== undefined) return registered.id;
+      }
+      return '';
+    }
+
+    /**
+     * Badge refreshers of every mounted notepad view. A save in one Session
+     * changes counts that other Sessions' sidebar rows show, so they are
+     * woken up instead of waiting for the polling refresh.
+     */
+    const badgeRefreshers = new Set();
+
+    function requestBadgeRefresh() {
+      for (const refresh of [...badgeRefreshers]) {
+        try {
+          refresh();
+        } catch {
+          /* One broken view must not stop the others. */
+        }
+      }
+    }
+
     /** Store a path relative to the workspace when it lives inside it. */
     function imagePathForNote(pathValue, cwd) {
       const file = String(pathValue ?? '').replace(/\\/gu, '/');
@@ -2947,6 +3012,9 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           if (seq !== seqRef.current || rootRef.current !== root) return;
           if (typeof data.mtimeMs === 'number') versionRef.current = data.mtimeMs;
           setSavedAt(typeof data.mtimeMs === 'number' ? data.mtimeMs : Date.now());
+          // Other Sessions' sidebar rows read the file, so let them re-read it
+          // now instead of waiting for the next polling refresh.
+          requestBadgeRefresh();
           if (JSON.stringify(serializeSegments(segmentsRef.current)) === signature) {
             dirtyRef.current = false;
             setStatus('saved');
@@ -3103,8 +3171,6 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               if (disposed || bindingRef.current?.id !== sessionId) return;
               const next = {};
               const list = [];
-              let matched = '';
-              const target = normalizedCwd(binding.cwd);
               for (const workspace of Array.isArray(data?.workspaces) ? data.workspaces : []) {
                 const id = typeof workspace?.id === 'string' ? workspace.id : '';
                 if (id === '') continue;
@@ -3117,14 +3183,17 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                   count,
                   hasContent: workspace.hasContent === true,
                 });
-                if (matched === '' && normalizedCwd(workspace.path) === target) matched = id;
               }
               setWsCounts(next);
               setWsList(list);
+              const matched = resolveWorkspaceId(ctx, binding.cwd, sessionId, list);
               if (matched !== '') setCurrentWsId(matched);
             })
             .catch(() => {});
         };
+        // A save in another Session of this client wakes the badges up right
+        // away; the interval only covers changes made outside the app.
+        badgeRefreshers.add(refresh);
         refresh();
         const timer = setInterval(refresh, SIDEBAR_REFRESH_MS);
         const onFocus = () => refresh();
@@ -3135,6 +3204,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility);
         return () => {
           disposed = true;
+          badgeRefreshers.delete(refresh);
           clearInterval(timer);
           window.removeEventListener('focus', onFocus);
           if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility);
@@ -3142,14 +3212,11 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       }, [binding === null ? '' : binding.id, binding === null ? '' : binding.cwd]);
 
       const localUnsentCount = countUnsent(segments);
-
-      useEffect(() => {
-        if (currentWsId === '') return;
-        setWsCounts((previous) =>
-          (previous[currentWsId] === localUnsentCount
-            ? previous
-            : { ...previous, [currentWsId]: localUnsentCount }));
-      }, [currentWsId, localUnsentCount]);
+      // While the current note is loaded, its live count is the truth for this
+      // Workspace: a counts response that raced the save must not roll the
+      // badge back to a stale value.
+      const liveCountReady = currentWsId !== ''
+        && (status === 'saved' || status === 'saving' || status === 'dirty');
 
       useEffect(() => {
         if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return undefined;
@@ -3163,9 +3230,16 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           for (const row of rows) {
             const key = typeof row.getAttribute === 'function' ? String(row.getAttribute('data-row-key') ?? '') : '';
             const id = key.startsWith('workspace:') ? key.slice('workspace:'.length) : '';
-            const count = id === '' ? 0 : (wsCounts[id] ?? 0);
-            if (count > 0) row.setAttribute('data-np-unsent', count > 99 ? '99+' : String(count));
-            else row.removeAttribute('data-np-unsent');
+            const count = id === ''
+              ? 0
+              : (id === currentWsId && liveCountReady ? localUnsentCount : (wsCounts[id] ?? 0));
+            const value = count > 0 ? (count > 99 ? '99+' : String(count)) : '';
+            const previous = typeof row.getAttribute === 'function' ? row.getAttribute('data-np-unsent') : null;
+            if (value === '') {
+              if (previous !== null) row.removeAttribute('data-np-unsent');
+            } else if (previous !== value) {
+              row.setAttribute('data-np-unsent', value);
+            }
           }
         };
         apply();
@@ -3179,7 +3253,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           observer.disconnect();
           apply();
         };
-      }, [wsCounts]);
+      }, [wsCounts, currentWsId, liveCountReady, localUnsentCount]);
 
       // Focus a just-created or restored card ------------------------------
       useEffect(() => {
@@ -4881,12 +4955,12 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           const start = typeof element?.selectionStart === 'number' ? element.selectionStart : null;
           const end = typeof element?.selectionEnd === 'number' ? element.selectionEnd : start;
           if (start === null || start !== end) return;
-          const firstBreak = value.indexOf('\n');
-          const lastBreak = value.lastIndexOf('\n');
+          // Leave the card only from the very start (Up) or the very end
+          // (Down) of its text. The caret line does not matter: a multi-line
+          // segment keeps the arrows for its own caret, and a long soft-wrapped
+          // line does not jump away just because it wraps.
           const up = event.key === 'ArrowUp';
-          const atEdge = up
-            ? (firstBreak === -1 || start <= firstBreak)
-            : (lastBreak === -1 || start > lastBreak);
+          const atEdge = up ? start === 0 : start >= value.length;
           if (!atEdge) return;
           const active = segmentsRef.current.filter((segment) => segment.archived !== true);
           const position = active.findIndex((segment) => segment.id === id);
@@ -5054,14 +5128,14 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         || (Array.isArray(segment.images) && segment.images.length > 0));
       const canUndo = historyRef.current.index > 0;
       const canRedo = historyRef.current.index < historyRef.current.entries.length;
-      const currentPath = normalizedCwd(binding.cwd);
+      const currentPathKey = workspacePathKey(binding.cwd);
       // Only workspaces whose note actually contains a non-empty segment.
       const workspaceItems = wsList.filter((workspace) => workspace.hasContent === true);
       const liveCurrentHasContent = segments.some((segment) =>
         segment.archived !== true
         && ((typeof segment.text === 'string' && segment.text.trim() !== '')
           || (Array.isArray(segment.images) && segment.images.length > 0)));
-      if (liveCurrentHasContent && !workspaceItems.some((workspace) => normalizedCwd(workspace.path) === currentPath)) {
+      if (liveCurrentHasContent && !workspaceItems.some((workspace) => workspacePathKey(workspace.path) === currentPathKey)) {
         workspaceItems.unshift({
           id: currentWsId,
           path: binding.cwd,
@@ -5122,7 +5196,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                 : workspaceItems.map((workspace) => {
                     const isCurrent = workspace.id !== ''
                       ? workspace.id === currentWsId
-                      : normalizedCwd(workspace.path) === currentPath;
+                      : workspacePathKey(workspace.path) === currentPathKey;
+                    const count = isCurrent && liveCountReady ? unsentCount : workspace.count;
                     return h(
                       'button',
                       {
@@ -5136,8 +5211,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
                       },
                       h('span', { className: 'dsh-np-ws-item-name' },
                         workspace.title !== '' ? workspace.title : workspaceName(workspace.path)),
-                      workspace.count > 0
-                        ? h('span', { className: 'dsh-np-ws-item-count' }, String(workspace.count))
+                      count > 0
+                        ? h('span', { className: 'dsh-np-ws-item-count' }, String(count))
                         : null,
                     );
                   }),
@@ -6987,6 +7062,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         paintNotepadNavIcon,
         wrapSettingsNav,
         parseShortcut,
+        resolveWorkspaceId,
       },
     };
   },

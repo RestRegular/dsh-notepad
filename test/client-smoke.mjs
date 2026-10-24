@@ -602,6 +602,25 @@ const ctx = {
 face.apply(ctx);
 
 assert.deepEqual(injected, ['shell.overlay', 'settings.section']);
+// Workspace resolution feeds the live sidebar badge: a stale / differently
+// spelled path must not leave the current Workspace without an id.
+const resolveWorkspaceId = face.__test.resolveWorkspaceId;
+assert.equal(
+  resolveWorkspaceId(ctx, 'd:\\\\PROJECTS\\\\demo\\\\', SESSION, []),
+  'ws-demo',
+  'Session membership resolves the Workspace regardless of path spelling',
+);
+assert.equal(
+  resolveWorkspaceId(ctx, 'D:\\\\Elsewhere\\\\demo', 'unknown-session',
+    [{ id: 'ws-reg', path: 'd:\\\\elsewhere\\\\demo' }]),
+  'ws-reg',
+  'the registry list matches a Windows path case-insensitively',
+);
+assert.equal(
+  resolveWorkspaceId(ctx, 'D:\\\\Elsewhere', 'unknown-session', []),
+  '',
+  'a directory no Workspace claims resolves to nothing',
+);
 assert.equal(styleTags.length, 1, 'styles injected once');
 assert.ok(styleTags[0].textContent.includes('.dsh-np-card'));
 assert.ok(styleTags[0].textContent.includes('var(--dsw-font-family'), 'uses the DSH/system font family');
@@ -1131,7 +1150,7 @@ secondNew.element.props.onChange({ target: { value: 'B' } });
 const afterAB = await renderRounds(1);
 assert.deepEqual(textareas(afterAB.seen).map(({ element }) => element.props.value), ['段改', 'A', 'B']);
 
-// Arrow keys move the caret between cards ---------------------------------
+// Arrow keys leave a card only from the very start / very end of its text --
 const arrowAreas = textareas(afterAB.seen);
 const arrowNodes = arrowAreas.map(({ element }) => ({
   value: element.props.value,
@@ -1144,30 +1163,56 @@ const arrowNodes = arrowAreas.map(({ element }) => ({
   scrollIntoView() {},
 }));
 arrowAreas.forEach(({ element }, index) => element.props.ref(arrowNodes[index]));
-arrowAreas[0].element.props.onKeyDown({
-  key: 'ArrowDown',
+const arrowEvent = (key, currentTarget) => ({
+  key,
   shiftKey: false,
   ctrlKey: false,
   metaKey: false,
   altKey: false,
   isComposing: false,
   preventDefault() {},
-  currentTarget: arrowNodes[0],
+  currentTarget,
 });
-assert.equal(arrowNodes[1].focused, true, 'ArrowDown focuses the next card');
+const caretIn = (node, caret) => {
+  node.selectionStart = caret;
+  node.selectionEnd = caret;
+  node.focused = false;
+  node.caret = -1;
+  return node;
+};
+// Middle of a single-line card: the arrows stay in the card.
+caretIn(arrowNodes[0], 1);
+arrowAreas[0].element.props.onKeyDown(arrowEvent('ArrowDown', arrowNodes[0]));
+assert.equal(arrowNodes[1].focused, false, 'ArrowDown in the middle of the text stays in the card');
+caretIn(arrowNodes[1], 1);
+arrowAreas[1].element.props.onKeyDown(arrowEvent('ArrowUp', arrowNodes[1]));
+assert.equal(arrowNodes[0].focused, false, 'ArrowUp in the middle of the text stays in the card');
+// A multi-line card keeps its arrows even on the first / last line, and still
+// hands the caret over from position 0 / the text end.
+const multilineSource = {
+  value: 'one\ntwo\nthree',
+  selectionStart: 5,
+  selectionEnd: 5,
+  focused: false,
+  caret: -1,
+  focus() { this.focused = true; },
+  setSelectionRange(position) { this.caret = position; },
+  scrollIntoView() {},
+};
+caretIn(arrowNodes[2], 0); // reset the previous target
+arrowAreas[0].element.props.onKeyDown(arrowEvent('ArrowDown', caretIn(multilineSource, 8)));
+assert.equal(arrowNodes[1].focused, false, 'ArrowDown at the first column of the last line does not jump');
+arrowAreas[0].element.props.onKeyDown(arrowEvent('ArrowUp', caretIn(multilineSource, 3)));
+assert.equal(arrowNodes[0].focused, false, 'ArrowUp at the end of the first line does not jump');
+// Edges: the very end goes down, the very start goes up.
+arrowAreas[0].element.props.onKeyDown(arrowEvent('ArrowDown', caretIn(arrowNodes[0], 2)));
+assert.equal(arrowNodes[1].focused, true, 'ArrowDown at the end of the text focuses the next card');
 assert.equal(arrowNodes[1].caret, 0, 'ArrowDown puts the caret at the start of the next card');
-arrowAreas[1].element.props.onKeyDown({
-  key: 'ArrowUp',
-  shiftKey: false,
-  ctrlKey: false,
-  metaKey: false,
-  altKey: false,
-  isComposing: false,
-  preventDefault() {},
-  currentTarget: arrowNodes[1],
-});
-assert.equal(arrowNodes[0].focused, true, 'ArrowUp focuses the previous card');
+arrowAreas[1].element.props.onKeyDown(arrowEvent('ArrowUp', caretIn(arrowNodes[1], 0)));
+assert.equal(arrowNodes[0].focused, true, 'ArrowUp at the start of the text focuses the previous card');
 assert.equal(arrowNodes[0].caret, 2, 'ArrowUp puts the caret at the end of the previous card');
+arrowAreas[0].element.props.onKeyDown(arrowEvent('ArrowDown', caretIn(multilineSource, 13)));
+assert.equal(arrowNodes[1].focused, true, 'ArrowDown at the end of multi-line text still jumps');
 
 const titleInputsBefore = findAllByClass(afterAB.seen, 'dsh-np-title-input');
 const titleAdds = findAllByClass(afterAB.seen, 'dsh-np-title-add');
@@ -1326,8 +1371,11 @@ assert.deepEqual(
 );
 assert.equal(sidebarRows[0].attributes['data-np-unsent'], '2', 'workspace badge follows the live pending count');
 
+const badgeFetchesBeforeSave = unsentRequests.length;
 await new Promise((resolve) => setTimeout(resolve, 650));
-const afterFeatureSave = await renderRounds(1);
+const afterFeatureSave = await renderRounds(2);
+assert.ok(unsentRequests.length > badgeFetchesBeforeSave,
+  'a finished save refreshes the sidebar badges without waiting for the poll');
 const featurePut = JSON.parse(requests.filter((request) => request.method === 'PUT').at(-1).body);
 const titled = featurePut.segments.find((segment) => segment.title === '合并标题');
 assert.ok(titled, 'card titles autosave');
