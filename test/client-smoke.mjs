@@ -522,12 +522,15 @@ const uiWorkspace = {
     this.openSessionCalls.push(sessionId);
     liveSessions.add(sessionId);
   },
-  workspaces: {
-    list: {
-      getSnapshot: () => ({
-        items: [{ workspaceId: 'ws-demo', path: ROOT, sessionIds: [SESSION] }],
-      }),
-    },
+};
+
+/** Host Workspace projection: ROOT is registered as a real Workspace. */
+const workspacesService = {
+  list: {
+    getSnapshot: () => ({
+      items: [{ workspaceId: 'ws-demo', path: ROOT, sessionIds: [SESSION] }],
+      phase: 'ready',
+    }),
   },
 };
 
@@ -585,6 +588,7 @@ const ctx = {
     if (name === 'sessions') return sessionsService;
     if (name === 'conversation') return conversation;
     if (name === 'uiWorkspace') return uiWorkspace;
+    if (name === 'workspaces') return workspacesService;
     if (name === 'configForms') return configForms;
     return undefined;
   },
@@ -1447,7 +1451,8 @@ const sentBeforeNew = sent.length;
 await sendNewButton.element.props.onClick();
 const afterSendNew = await renderRounds(3);
 assert.equal(createdSessions, 1, 'sending in a new session creates it first');
-assert.equal(createdSessionRequests.at(-1).cwd, ROOT);
+assert.deepEqual(createdSessionRequests.at(-1), { workspaceId: 'ws-demo' },
+  'the new session names its Workspace so it does not land in Ungrouped');
 assert.equal(sent.length, sentBeforeNew + 1);
 assert.equal(sent.at(-1), '段改\n![picked.png](pics/picked.png)', 'the new session receives the segment text');
 assert.equal(uiWorkspace.openSessionCalls.at(-1), 'session-new-1', 'the new session is opened');

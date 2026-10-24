@@ -4490,13 +4490,81 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         }
       };
 
+      /** Read the Workspace projection, tolerating a Host or service that is not up yet. */
+      const workspaceSnapshot = () => {
+        try {
+          const workspaces = ctx.get('workspaces');
+          const snapshot = workspaces?.list?.getSnapshot?.();
+          if (snapshot !== undefined && snapshot !== null) return snapshot;
+        } catch {
+          /* The Workspace follow stream may still be opening. */
+        }
+        return undefined;
+      };
+
+      /**
+       * Resolve the registered Workspace that owns `cwd`.
+       * `sessions.create` only attaches the new Session to a Workspace when the
+       * request names its id; creating with a bare `cwd` leaves the Session in the
+       * Ungrouped bucket even though its working directory matches a Workspace.
+       * @param cwd - directory the new Session should work in.
+       * @param sessionId - Session the note currently reads; its membership is
+       *   authoritative when path spellings differ (symlinks, mapped drives).
+       * @returns the owning Workspace id, or null when no Workspace claims it.
+       */
+      const workspaceIdForCwd = async (cwd, sessionId) => {
+        const target = normalizedCwd(cwd);
+        if (target === '') return null;
+        // Windows drive / UNC spellings are case-insensitive; POSIX ones are not.
+        const windows = /^[A-Za-z]:\//u.test(target) || target.startsWith('//');
+        const wanted = windows ? target.toLowerCase() : target;
+        const matches = (path) => {
+          const candidate = normalizedCwd(path);
+          return (windows ? candidate.toLowerCase() : candidate) === wanted;
+        };
+        const owner = (items) => {
+          if (typeof sessionId === 'string' && sessionId !== '') {
+            const member = items.find((item) =>
+              (Array.isArray(item?.sessionIds) && item.sessionIds.includes(sessionId)));
+            if (typeof member?.workspaceId === 'string' && member.workspaceId !== '') return member.workspaceId;
+          }
+          const match = items.find((item) => typeof item?.path === 'string' && matches(item.path));
+          return typeof match?.workspaceId === 'string' && match.workspaceId !== '' ? match.workspaceId : undefined;
+        };
+        // A freshly opened Host may still be streaming its Workspace list; wait
+        // for the ready baseline so a slow stream does not cost the attachment.
+        // A missing service is not worth that wait: it will fall back to `cwd`.
+        const start = Date.now();
+        let seen = false;
+        for (;;) {
+          const snapshot = workspaceSnapshot();
+          if (snapshot !== undefined) seen = true;
+          const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+          const workspaceId = owner(items);
+          if (workspaceId !== undefined) return workspaceId;
+          // A ready snapshot keeps its current views, so an absent match is final.
+          if (snapshot?.phase === 'ready') return null;
+          if (!seen && Date.now() - start >= 300) return null;
+          if (Date.now() - start >= 1500) return null;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      };
+
       /** Create an empty session in a workspace and return its id. */
-      const createWorkspaceSession = async (cwd) => {
+      const createWorkspaceSession = async (cwd, sessionId) => {
         const sessions = ctx.get('sessions');
         if (sessions === undefined || sessions === null || typeof sessions.create !== 'function') return null;
-        const result = await sessions.create({ cwd });
+        const workspaceId = await workspaceIdForCwd(cwd, sessionId);
+        const result = await sessions.create(workspaceId !== null ? { workspaceId } : { cwd });
         if (result === undefined || result === null) return null;
         if (result.ok === false) {
+          // Publication precedes Workspace attachment: a failed attach still
+          // leaves a real Session, and sending into that one beats creating a
+          // second Ungrouped Session.
+          const published = result.error?.code === 'session/workspace-attach-failed'
+            ? result.error?.details?.sessionId
+            : undefined;
+          if (typeof published === 'string' && published !== '') return published;
           const failure = new Error(result.error?.message ?? 'create session failed');
           failure.code = result.error?.code;
           throw failure;
@@ -4557,7 +4625,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           }
         };
         try {
-          const newSessionId = await createWorkspaceSession(cwd);
+          const newSessionId = await createWorkspaceSession(
+            cwd,
+            rootSessionRef.current !== '' ? rootSessionRef.current : bindingRef.current?.id,
+          );
           if (newSessionId === null) {
             if (!insertValue(value)) await copyText(value);
             showToast(t('sendNewUnavailable'));
