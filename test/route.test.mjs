@@ -7,6 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { handleRequest } from '../index.js';
+import { shutdownDetachedServer } from '../lib/detached-server.js';
 import { NOTE_VERSION, notePath, writeNote } from '../lib/note-store.js';
 
 const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -547,4 +548,58 @@ test('POST optimize rejects empty text', async (t) => {
   });
   assert.equal(response.status, 400);
   assert.equal((await response.json()).code, 'bad-input');
+});
+
+test('detach-url, detached status and retire work through the DSH route', async (t) => {
+  t.after(() => shutdownDetachedServer());
+  const root = await tempDir(t);
+  await writeNote(root, [{ id: 's1', text: 'detached route', archived: false }]);
+  const base = await serve(t, fakeContext({
+    workspaces: [{ id: 'ws-detached', path: root, title: 'Detached' }],
+  }));
+
+  const response = await fetch(`${base}/dsh-notepad/api/detach-url`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      root,
+      sessionId: 's1',
+      config: { lang: 'en', theme: 'rose', ai: 'route AI' },
+    }),
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.match(body.url, /^http:\/\/127\.0\.0\.1:\d+\/window\?token=[0-9a-f]+&root=/u);
+
+  const page = await fetch(body.url);
+  assert.equal(page.status, 200);
+  assert.ok((await page.text()).includes('detached.js'));
+
+  const status = await fetch(`${base}/dsh-notepad/api/detached?root=${encodeURIComponent(root)}`);
+  assert.equal(status.status, 200);
+  assert.equal((await status.json()).active, true);
+
+  const retire = await fetch(`${base}/dsh-notepad/api/detached/retire`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root }),
+  });
+  assert.equal(retire.status, 200);
+  assert.equal((await retire.json()).retired, true);
+
+  const after = await fetch(`${base}/dsh-notepad/api/detached?root=${encodeURIComponent(root)}`);
+  assert.equal((await after.json()).active, false);
+});
+
+test('detach-url refuses an unknown workspace', async (t) => {
+  t.after(() => shutdownDetachedServer());
+  const root = await tempDir(t);
+  const base = await serve(t, fakeContext({ workspaces: [] }));
+  const response = await fetch(`${base}/dsh-notepad/api/detach-url`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root, sessionId: 'missing' }),
+  });
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).code, 'unknown-workspace');
 });

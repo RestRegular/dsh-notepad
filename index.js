@@ -33,12 +33,18 @@ import {
   unsentCount,
   writeNote,
 } from './lib/note-store.js';
+import {
+  detachedStatus,
+  registerDetachedRoot,
+  retireDetachedRoot,
+  shutdownDetachedServer,
+} from './lib/detached-server.js';
 
 /** Loopback route prefix. */
 const ROUTE = '/dsh-notepad/api';
 
 /** Plugin version mirrored in package.json. */
-const VERSION = '0.12.0';
+const VERSION = '0.13.0';
 
 /** Request body cap for note writes. */
 const BODY_LIMIT = 1024 * 1024;
@@ -471,6 +477,47 @@ async function dispatchRequest(ctx, req, res) {
     });
     return;
   }
+  if (action === 'detach-url') {
+    if (req.method !== 'POST') {
+      sendJson(res, { ok: false, code: 'method', error: 'Use POST.' }, 405);
+      return;
+    }
+    const body = await readJsonBody(req);
+    const root = await resolveRequestRoot(ctx, body);
+    const config = body.config !== null && typeof body.config === 'object' && !Array.isArray(body.config)
+      ? body.config
+      : undefined;
+    const detached = await registerDetachedRoot(ctx, root, {
+      config,
+      optimize: (text, title, instruction) => optimizeText(ctx, text, title, instruction),
+    });
+    sendJson(res, { ok: true, url: detached.url });
+    return;
+  }
+  if (action === 'detached') {
+    if (req.method !== 'GET') {
+      sendJson(res, { ok: false, code: 'method', error: 'Use GET.' }, 405);
+      return;
+    }
+    const root = url.searchParams.get('root') ?? '';
+    if (root.trim() === '') {
+      throw new NoteStoreError('bad-root', 'root is required.');
+    }
+    sendJson(res, { ok: true, ...detachedStatus(root) });
+    return;
+  }
+  if (action === 'detached/retire') {
+    if (req.method !== 'POST') {
+      sendJson(res, { ok: false, code: 'method', error: 'Use POST.' }, 405);
+      return;
+    }
+    const body = await readJsonBody(req);
+    if (typeof body.root !== 'string' || body.root.trim() === '') {
+      throw new NoteStoreError('bad-root', 'root is required.');
+    }
+    sendJson(res, { ok: true, retired: retireDetachedRoot(body.root) });
+    return;
+  }
   if (action === 'image') {
     if (req.method === 'POST') {
       const body = await readJsonBody(req, IMAGE_BODY_LIMIT);
@@ -602,5 +649,7 @@ export const name = 'dsh-notepad';
  * @param {import('@deepseek-ai/cordis').Context} ctx
  */
 export function apply(ctx) {
+  // Close the plugin-owned loopback server when this Host half unloads.
+  ctx.effect(() => () => shutdownDetachedServer(), 'dsh-notepad: detached window server');
   ctx.inject(['webServer'], (scoped) => mountRoutes(scoped));
 }

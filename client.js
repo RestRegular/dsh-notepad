@@ -46,6 +46,10 @@ window.__ModuleLoader__.load({
     const NS = 'dsh-notepad';
     const API = '/dsh-notepad/api';
     const UI_KEY = 'dsh-notepad.ui.v1';
+    const DETACH_KEY = 'dsh-notepad.detached.v1';
+    const LAST_BINDING_KEY = 'dsh-notepad.binding.v1';
+    /** How long a just-opened detached window may take before the panel returns. */
+    const DETACH_GRACE_MS = 15000;
     const DEFAULT_W = 420;
     const DEFAULT_H = 460;
     const MIN_W = 320;
@@ -608,6 +612,19 @@ window.__ModuleLoader__.load({
         aiCustomHint: '仅对记事本的 AI 优化请求生效；请保留 Markdown、代码与文件路径。',
         aiPromptHint: '优化结果仍会强制只返回正文，不会添加解释或代码围栏。',
         windowSection: '窗口',
+        detachedSection: '独立窗口',
+        detachedStatus: '状态',
+        detachedHint: '把记事本移到独立窗口后，DSH 最小化或关闭界面时它仍可继续记录；独立窗口也有自己的最小化 / 还原，不受 DSH 影响。点「收回独立窗口」可回到浮窗。',
+        openDetached: '在独立窗口打开',
+        reattachDetached: '收回独立窗口',
+        detachedActive: '独立窗口已打开',
+        detachedInactive: '当前没有独立窗口',
+        detachedOpened: '已在独立窗口打开',
+        detachedClosed: '独立窗口已关闭，已收回面板',
+        detachedRetired: '已收回独立窗口',
+        detachedBlocked: '浏览器阻止了新窗口，请允许弹窗后重试',
+        detachedUnavailable: '独立窗口不可用',
+        detachedNeedWorkspace: '请先在会话中打开一个工作区',
         defaultWidth: '默认宽度',
         defaultHeight: '默认高度',
         resetDefaultSize: '恢复默认位置和尺寸数值',
@@ -833,6 +850,19 @@ window.__ModuleLoader__.load({
         aiCustomHint: 'Only used for notepad AI requests; keep Markdown, code, and file paths.',
         aiPromptHint: 'The result is still forced to plain rewritten text with no explanation or fence.',
         windowSection: 'Window',
+        detachedSection: 'Detached window',
+        detachedStatus: 'Status',
+        detachedHint: 'Move the notepad into its own window so it keeps working when DSH is minimized or its interface is closed. The window minimizes and restores independently; use "Return detached window" to bring the panel back.',
+        openDetached: 'Open in a detached window',
+        reattachDetached: 'Return detached window',
+        detachedActive: 'Detached window is open',
+        detachedInactive: 'No detached window',
+        detachedOpened: 'Opened in a detached window',
+        detachedClosed: 'The detached window closed; the panel is back',
+        detachedRetired: 'Returned the detached window',
+        detachedBlocked: 'The browser blocked the new window; allow pop-ups and try again',
+        detachedUnavailable: 'The detached window is unavailable',
+        detachedNeedWorkspace: 'Open a workspace session first',
         defaultWidth: 'Default width',
         defaultHeight: 'Default height',
         resetDefaultSize: 'Restore default position and size values',
@@ -1300,6 +1330,23 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** Arrow leaving a frame: open the notepad in a detached window. */
+    function DetachIcon({ size = 16 }) {
+      return h(
+        Svg,
+        { size, viewBox: '0 0 16 16' },
+        h('path', {
+          d: 'M9.4 3.2h3.4v3.4M12.8 3.2 7.6 8.4',
+          stroke: 'currentColor', strokeWidth: 1.3,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }),
+        h('path', {
+          d: 'M12.4 9.4v2.3c0 .7-.6 1.3-1.3 1.3H4.6c-.7 0-1.3-.6-1.3-1.3V5.2c0-.7.6-1.3 1.3-1.3h2.3',
+          stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round',
+        }),
+      );
+    }
+
     /** Two arrows converging: merge selected segments into one. */
     function MergeIcon({ size = 16 }) {
       return h(
@@ -1495,6 +1542,7 @@ button.dsh-np-hint:hover{opacity:1;color:var(--dsw-alias-label-secondary,#4b5563
 .dsh-np-restore{position:fixed;right:16px;bottom:16px;z-index:30;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.12));border-radius:10px;background:var(--dsw-alias-bg-layer-2,#fff);color:var(--dsw-alias-label-secondary,#4b5563);box-shadow:var(--dsw-elevation-lv2,0 8px 24px rgb(15 23 42/.16));cursor:pointer;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(6px) scale(.9);transition:opacity .18s ease,transform .18s ease,visibility 0s linear .18s}
 .dsh-np-restore[data-visible=true]{opacity:.9;visibility:visible;pointer-events:auto;transform:none;transition:opacity .18s ease,transform .18s ease,visibility 0s linear 0s}
 .dsh-np-restore[data-visible=true]:hover{opacity:1;transform:translateY(-1px)}
+.dsh-np-restore[data-detached=true]{color:var(--dsw-alias-state-business-primary,#4176e6);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary,#4176e6) 48%,transparent)}
 .dsh-np-restore-badge{position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;border-radius:9px;background:var(--dsw-alias-state-business-primary,#4176e6);color:#fff;font-size:9.5px;font-weight:700;line-height:16px;text-align:center;font-variant-numeric:tabular-nums;box-shadow:0 0 0 1.5px var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-layer-1,#fff))}
 [data-row-key^="workspace:"][data-np-unsent]{position:relative}
 [data-row-key^="workspace:"][data-np-unsent]::after{content:attr(data-np-unsent);position:absolute;top:-4px;left:1px;z-index:2;min-width:15px;height:15px;padding:0 4px;box-sizing:border-box;border-radius:8px;background:var(--dsw-alias-state-business-primary,#4176e6);color:#fff;font-size:9.5px;font-weight:700;line-height:15px;text-align:center;font-variant-numeric:tabular-nums;pointer-events:none;box-shadow:0 0 0 1.5px var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-layer-1,#fff))}
@@ -1544,8 +1592,13 @@ button.dsh-np-hint:hover{opacity:1;color:var(--dsw-alias-label-secondary,#4b5563
 .dsh-np-toggle-label{font-size:12px;line-height:1.4;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap}
 .dsh-np-toggle.on .dsh-np-toggle-label{color:var(--dsw-alias-label-primary,#1f2430);font-weight:600}
 .dsh-np-set-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dsh-np-set-status{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:1.4;color:var(--dsw-alias-label-secondary,#4b5563)}
+.dsh-np-set-status::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-label-caption,#9aa3b2)}
+.dsh-np-set-status[data-active=true]{color:var(--dsw-alias-state-success-primary,#2fb36d)}
+.dsh-np-set-status[data-active=true]::before{background:var(--dsw-alias-state-success-primary,#2fb36d)}
 .dsh-np-set-btn{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:3px 11px;border:1px solid var(--dsw-alias-border-l2,rgb(15 23 42/.14));border-radius:8px;background:var(--dsw-alias-bg-layer-2,#fff);color:var(--dsw-alias-label-primary,#1f2430);font:inherit;font-size:12px;cursor:pointer}
 .dsh-np-set-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgb(38 49 72/.06))}
+.dsh-np-set-btn:disabled{opacity:.45;cursor:default}
 .dsh-np-set-btn[data-primary=true]{border-color:transparent;background:var(--np-set-accent);color:#fff}
 .dsh-np-set-btn[data-danger=true]{color:var(--dsw-alias-state-error-primary,#e25555)}
 .dsh-np-set-note{padding:0 13px 11px;font-size:11px;line-height:1.5;color:var(--dsw-alias-label-secondary,#4b5563)}
@@ -2209,6 +2262,254 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       return readResponse(response);
     }
 
+    // ------------------------------------------------------------------
+    // Detached window
+    // ------------------------------------------------------------------
+    /** Cached base URL of the plugin-owned loopback window, keyed by root. */
+    const detachWindowUrls = new Map();
+    const detachWindowInflight = new Map();
+
+    /** Settings the standalone page needs for its own theme and AI button. */
+    function detachWindowConfig(settings) {
+      return {
+        lang: preferredLanguage(),
+        theme: settings.theme,
+        uiStyle: settings.uiStyle,
+        blur: settings.blur,
+        font: settings.font,
+        fontSize: settings.fontSize,
+        maxSegmentHeight: settings.maxSegmentHeight,
+        saveMode: settings.saveMode,
+        buttonGroups: settings.buttonGroups,
+        ai: aiInstruction(settings),
+      };
+    }
+
+    async function fetchDetachWindowUrl(root, sessionId, settings) {
+      const response = await fetch(`${API}/detach-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ root, sessionId, config: detachWindowConfig(settings) }),
+      });
+      const data = await readResponse(response);
+      if (typeof data.url !== 'string' || data.url === '') {
+        throw new Error('The host did not return a detached window URL.');
+      }
+      return data.url;
+    }
+
+    /** Fetch or reuse the detached-window base URL for one workspace. */
+    function getDetachWindowUrl(root, sessionId, settings) {
+      const key = workspacePathKey(root);
+      const cached = detachWindowUrls.get(key);
+      if (typeof cached === 'string' && cached !== '') return Promise.resolve(cached);
+      const pending = detachWindowInflight.get(key);
+      if (pending !== undefined) return pending;
+      const task = fetchDetachWindowUrl(root, sessionId, settings)
+        .then((url) => {
+          detachWindowUrls.set(key, url);
+          detachWindowInflight.delete(key);
+          return url;
+        })
+        .catch((error) => {
+          detachWindowInflight.delete(key);
+          throw error;
+        });
+      detachWindowInflight.set(key, task);
+      return task;
+    }
+
+    /**
+     * Warm the URL before a click so `window.open` can run directly inside the
+     * user gesture. A settings change refreshes the Host-side config too.
+     */
+    function prefetchDetachWindowUrl(root, sessionId, settings, refresh = false) {
+      if (typeof root !== 'string' || root === '') return;
+      if (refresh) detachWindowUrls.delete(workspacePathKey(root));
+      getDetachWindowUrl(root, sessionId, settings).catch(() => {});
+    }
+
+    /** True when DSH is running inside the Electron shell. */
+    function isDesktopShell() {
+      try {
+        if (hostChromeTop() > 0) return true;
+        const root = document.documentElement;
+        if (root !== null && root !== undefined && typeof root.hasAttribute === 'function'
+          && root.hasAttribute('data-windows-titlebar')) return true;
+        const agent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+        return /electron/iu.test(String(agent ?? ''));
+      } catch {
+        return false;
+      }
+    }
+
+    /**
+     * Open the standalone page in a new browser window. In the Electron shell
+     * the main-process window-open handler forwards the http(s) URL to the
+     * system browser, so a null return still means "opened externally".
+     */
+    function openDetachedWindowNow(baseUrl, root, settings) {
+      let target;
+      try {
+        target = new URL(baseUrl);
+      } catch {
+        return { win: null, url: '', blocked: false, error: true };
+      }
+      target.searchParams.set('root', root);
+      const width = Math.min(760, Math.max(420, Number(settings.defaultWidth) || DEFAULT_W));
+      const height = Math.min(860, Math.max(360, Number(settings.defaultHeight) || DEFAULT_H));
+      let win = null;
+      try {
+        win = window.open(
+          target.href,
+          'dsh-notepad-detached',
+          `popup=yes,width=${width},height=${height},left=80,top=60`,
+        );
+      } catch {
+        win = null;
+      }
+      return { win, url: target.href, blocked: win === null && isDesktopShell() !== true, error: false };
+    }
+
+    /**
+     * Open the detached window. With a warmed URL this calls `window.open`
+     * synchronously, preserving the click's user activation.
+     */
+    async function openDetachedWindow(root, sessionId, settings) {
+      const key = workspacePathKey(root);
+      const cached = detachWindowUrls.get(key);
+      if (typeof cached === 'string' && cached !== '') {
+        return openDetachedWindowNow(cached, root, settings);
+      }
+      try {
+        const url = await getDetachWindowUrl(root, sessionId, settings);
+        return openDetachedWindowNow(url, root, settings);
+      } catch {
+        return { win: null, url: '', blocked: false, error: true };
+      }
+    }
+
+    async function fetchDetachWindowStatus(root, sessionId) {
+      const query = new URLSearchParams({ root });
+      if (typeof sessionId === 'string' && sessionId !== '') query.set('sessionId', sessionId);
+      const response = await fetch(`${API}/detached?${query.toString()}`, {
+        method: 'GET',
+        cache: 'no-store',
+      });
+      return readResponse(response);
+    }
+
+    async function retireDetachedWindow(root, sessionId) {
+      const response = await fetch(`${API}/detached/retire`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ root, sessionId }),
+      });
+      return readResponse(response);
+    }
+
+    function readDetachRecord() {
+      try {
+        const raw = window.localStorage?.getItem(DETACH_KEY);
+        if (typeof raw !== 'string' || raw === '') return null;
+        const value = JSON.parse(raw);
+        if (value === null || typeof value !== 'object') return null;
+        if (typeof value.root !== 'string' || value.root === '') return null;
+        return {
+          root: value.root,
+          sessionId: typeof value.sessionId === 'string' ? value.sessionId : '',
+          at: Number.isFinite(value.at) ? value.at : 0,
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    function writeDetachRecord(root, sessionId) {
+      try {
+        window.localStorage?.setItem(DETACH_KEY, JSON.stringify({ root, sessionId, at: Date.now() }));
+      } catch {
+        /* The window still opens; only the reload memory is missing. */
+      }
+    }
+
+    function clearDetachRecord(root = '') {
+      if (root !== '') {
+        const record = readDetachRecord();
+        if (record !== null && workspacePathKey(record.root) !== workspacePathKey(root)) return;
+      }
+      try {
+        window.localStorage?.removeItem(DETACH_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    function rememberLastBinding(root, sessionId) {
+      if (typeof root !== 'string' || root === '') return;
+      try {
+        window.localStorage?.setItem(LAST_BINDING_KEY, JSON.stringify({
+          root,
+          sessionId: typeof sessionId === 'string' ? sessionId : '',
+        }));
+      } catch {
+        /* ignore */
+      }
+    }
+
+    function readLastBinding() {
+      try {
+        const raw = window.localStorage?.getItem(LAST_BINDING_KEY);
+        if (typeof raw !== 'string' || raw === '') return null;
+        const value = JSON.parse(raw);
+        if (value === null || typeof value !== 'object' || typeof value.root !== 'string' || value.root === '') {
+          return null;
+        }
+        return { root: value.root, sessionId: typeof value.sessionId === 'string' ? value.sessionId : '' };
+      } catch {
+        return null;
+      }
+    }
+
+    /**
+     * Resolve the workspace of the active session for the Settings tab, which
+     * does not render inside the overlay and has no live binding of its own.
+     */
+    function currentSessionBinding(ctx) {
+      try {
+        const uiSession = ctx?.get?.('uiSession');
+        const current = uiSession?.adapter?.current;
+        const snapshot = current?.getSnapshot?.();
+        const id = typeof snapshot?.key === 'string' ? snapshot.key : '';
+        if (id !== '') {
+          const sessions = ctx?.get?.('sessions');
+          const row = sessions?.list?.getSnapshot?.()?.byId?.[id];
+          const cwd = typeof row?.cwd === 'string' && row.cwd !== '' ? row.cwd : '';
+          if (cwd !== '') return { root: cwd, sessionId: id };
+        }
+      } catch {
+        /* Fall back to the last session the overlay remembered. */
+      }
+      return readLastBinding();
+    }
+
+    /**
+     * Let the floating overlay react when the Settings tab opens or returns a
+     * detached window; both surfaces share one page, so a CustomEvent is
+     * enough and also works when the overlay currently renders nothing.
+     */
+    function announceDetachedState(root, active) {
+      if (typeof root !== 'string' || root === '') return;
+      try {
+        window.dispatchEvent(new CustomEvent('dsh-notepad:detached', {
+          detail: { root, active: active === true },
+        }));
+      } catch {
+        /* CustomEvent is unavailable in some test shims. */
+      }
+    }
+
+
     async function copyText(value) {
       try {
         if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
@@ -2393,6 +2694,12 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const [textSelection, setTextSelection] = useState(null);
       const [leaving, setLeaving] = useState(() => new Map());
       const [historyVer, setHistoryVer] = useState(0);
+      const [detachedRoot, setDetachedRoot] = useState(() => {
+        const record = readDetachRecord();
+        if (record === null) return '';
+        const stored = readStoredUi();
+        return stored.hidden ? record.root : '';
+      });
 
       const bindingRef = useRef(null);
       const rootSessionRef = useRef('');
@@ -2431,6 +2738,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       const settingsRef = useRef(settings);
       const collapsedRef = useRef(collapsed);
       const uiRef = useRef(ui);
+      const detachedRootRef = useRef(detachedRoot);
+      const detachOpenedAtRef = useRef(0);
       const textSelectionRef = useRef(null);
       const pendingSelectionRef = useRef(null);
       const growAllRef = useRef(false);
@@ -2454,6 +2763,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       settingsRef.current = settings;
       collapsedRef.current = collapsed;
       uiRef.current = ui;
+      detachedRootRef.current = detachedRoot;
 
       const setSelection = (next) => {
         selectedRef.current = next;
@@ -2771,6 +3081,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           inputStateRef.current = snapshot?.hooks?.input ?? null;
           const next = id !== undefined && cwd !== undefined ? { id, cwd } : null;
           bindingRef.current = next;
+          if (next !== null) rememberLastBinding(next.cwd, next.id);
           setBinding((previous) =>
             previous !== null && next !== null && previous.id === next.id && previous.cwd === next.cwd
               ? previous
@@ -2820,6 +3131,140 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         if (next.saveMode === 'manual') clearTimer();
         else if (dirtyRef.current) scheduleSave();
       }), []);
+
+      // Warm the detached-window URL while the panel is open, so the detach
+      // button can call window.open synchronously inside the click gesture.
+      useEffect(() => {
+        if (binding === null) return;
+        prefetchDetachWindowUrl(binding.cwd, binding.id, settingsRef.current, true);
+      }, [binding?.id, binding?.cwd, settings]);
+
+      // Restore the "detached and hidden" state after a DSH page reload.
+      useEffect(() => {
+        if (binding === null) return;
+        const record = readDetachRecord();
+        if (record === null) return;
+        if (workspacePathKey(record.root) !== workspacePathKey(binding.cwd)) return;
+        if (uiRef.current.hidden !== true) {
+          clearDetachRecord(record.root);
+          return;
+        }
+        detachOpenedAtRef.current = Date.now();
+        setDetachedRoot(record.root);
+      }, [binding?.id, binding?.cwd]);
+
+      // Returning to a workspace whose detached window is still connected
+      // hides the floating panel again instead of leaving two writers open.
+      useEffect(() => {
+        if (binding === null) return undefined;
+        const record = readDetachRecord();
+        if (record === null || workspacePathKey(record.root) !== workspacePathKey(binding.cwd)) return undefined;
+        let disposed = false;
+        let done = false;
+        let timer = 0;
+        const check = async () => {
+          if (done) return;
+          let status;
+          try {
+            status = await fetchDetachWindowStatus(binding.cwd, binding.id);
+          } catch {
+            return;
+          }
+          if (disposed || status?.active !== true) return;
+          done = true;
+          if (timer) clearInterval(timer);
+          timer = 0;
+          if (uiRef.current.hidden === true
+            && workspacePathKey(detachedRootRef.current) === workspacePathKey(binding.cwd)) return;
+          writeDetachRecord(binding.cwd, binding.id);
+          detachOpenedAtRef.current = Date.now();
+          detachedRootRef.current = binding.cwd;
+          setDetachedRoot(binding.cwd);
+          setUi((previous) => clampUi({ ...previous, hidden: true }));
+        };
+        timer = setInterval(() => { void check(); }, 3000);
+        void check();
+        return () => {
+          disposed = true;
+          if (timer) clearInterval(timer);
+        };
+      }, [binding?.id, binding?.cwd]);
+
+      // A closed/retired detached window brings the floating panel back.
+      useEffect(() => {
+        if (ui.hidden !== true || detachedRoot === '' || binding === null) return undefined;
+        if (workspacePathKey(detachedRoot) !== workspacePathKey(binding.cwd)) return undefined;
+        let disposed = false;
+        const check = async () => {
+          let status;
+          try {
+            status = await fetchDetachWindowStatus(detachedRoot, binding.id);
+          } catch {
+            return;
+          }
+          if (disposed) return;
+          if (status.active === true) return;
+          const waited = Date.now() - detachOpenedAtRef.current;
+          if (status.retired !== true && status.seen !== true && waited < DETACH_GRACE_MS) return;
+          clearDetachRecord(detachedRoot);
+          detachedRootRef.current = '';
+          setDetachedRoot('');
+          setUi((previous) => clampUi({ ...previous, hidden: false }));
+          showToast(t('detachedClosed'));
+        };
+        const timer = setInterval(() => { void check(); }, 3000);
+        void check();
+        return () => {
+          disposed = true;
+          clearInterval(timer);
+        };
+      }, [ui.hidden, detachedRoot, binding?.id, binding?.cwd]);
+
+      // Browser popups can tell the opener immediately when "Return to panel"
+      // is pressed; the status poll remains the fallback for external windows.
+      useEffect(() => {
+        if (detachedRoot === '' || typeof window === 'undefined') return undefined;
+        const onMessage = (event) => {
+          const data = event?.data;
+          if (data === null || typeof data !== 'object') return;
+          if (data.type !== 'dsh-notepad:reattached') return;
+          if (typeof data.root !== 'string'
+            || workspacePathKey(data.root) !== workspacePathKey(detachedRoot)) return;
+          clearDetachRecord(detachedRoot);
+          detachedRootRef.current = '';
+          setDetachedRoot('');
+          setUi((previous) => clampUi({ ...previous, hidden: false }));
+          showToast(t('detachedClosed'));
+        };
+        window.addEventListener('message', onMessage);
+        return () => window.removeEventListener('message', onMessage);
+      }, [detachedRoot]);
+
+      // The Settings tab can detach or return the window while this overlay is
+      // mounted but not rendered (settings is not the conversation view).
+      useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const onDetached = (event) => {
+          const detail = event?.detail;
+          if (detail === null || typeof detail !== 'object') return;
+          const root = detail.root;
+          const bindingNow = bindingRef.current;
+          if (typeof root !== 'string' || bindingNow === null) return;
+          if (workspacePathKey(root) !== workspacePathKey(bindingNow.cwd)) return;
+          if (detail.active === true) {
+            detachOpenedAtRef.current = Date.now();
+            detachedRootRef.current = root;
+            setDetachedRoot(root);
+            setUi((previous) => clampUi({ ...previous, hidden: true }));
+          } else {
+            detachedRootRef.current = '';
+            setDetachedRoot('');
+            setUi((previous) => clampUi({ ...previous, hidden: false }));
+          }
+        };
+        window.addEventListener('dsh-notepad:detached', onDetached);
+        return () => window.removeEventListener('dsh-notepad:detached', onDetached);
+      }, []);
 
       // Workspace dropdown closes on any outside pointer press -----------
       useEffect(() => {
@@ -4827,7 +5272,59 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       };
 
       const toggleHidden = () => {
-        setUi((previous) => clampUi({ ...previous, hidden: !previous.hidden }));
+        if (ui.hidden) {
+          if (detachedRoot !== '' && binding !== null
+            && workspacePathKey(detachedRoot) === workspacePathKey(binding.cwd)) {
+            reattachNotepad();
+            return;
+          }
+          setUi((previous) => clampUi({ ...previous, hidden: false }));
+          return;
+        }
+        setUi((previous) => clampUi({ ...previous, hidden: true }));
+      };
+
+      /** Open the standalone window and collapse the floating panel. */
+      const detachNotepad = async () => {
+        if (binding === null) return;
+        const root = binding.cwd;
+        const sessionId = binding.id;
+        // The detached page reads the same file; flush a pending debounce so
+        // it never opens on stale text.
+        try {
+          void saveNowRef.current?.({ force: true });
+        } catch {
+          /* The note still opens; the next save reconciles it. */
+        }
+        const result = await openDetachedWindow(root, sessionId, settingsRef.current);
+        if (result.error === true) {
+          showToast(t('detachedUnavailable'));
+          return;
+        }
+        if (result.blocked === true) {
+          showToast(t('detachedBlocked'));
+          return;
+        }
+        writeDetachRecord(root, sessionId);
+        detachOpenedAtRef.current = Date.now();
+        detachedRootRef.current = root;
+        setDetachedRoot(root);
+        setUi((previous) => clampUi({ ...previous, hidden: true }));
+        announceDetachedState(root, true);
+        showToast(t('detachedOpened'));
+      };
+
+      /** Close/retire the detached window and show the floating panel again. */
+      const reattachNotepad = () => {
+        const root = detachedRootRef.current;
+        const sessionId = bindingRef.current?.id ?? '';
+        if (root !== '') retireDetachedWindow(root, sessionId).catch(() => {});
+        clearDetachRecord();
+        detachedRootRef.current = '';
+        setDetachedRoot('');
+        setUi((previous) => clampUi({ ...previous, hidden: false }));
+        if (root !== '') announceDetachedState(root, false);
+        showToast(t('detachedRetired'));
       };
 
       const manualSave = async () => {
@@ -5286,6 +5783,20 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             onClick: addSegment,
           },
           h(PlusIcon, { size: 16 }),
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsh-np-btn',
+            title: t('openDetached'),
+            'aria-label': t('openDetached'),
+            'data-active': detachedRoot !== '' && workspacePathKey(detachedRoot) === workspacePathKey(binding.cwd)
+              ? 'true'
+              : 'false',
+            onClick: () => { void detachNotepad(); },
+          },
+          h(DetachIcon, { size: 15 }),
         ),
         h(
           'button',
@@ -6296,6 +6807,8 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         resizeHandle,
       );
 
+      const detachedHere = detachedRoot !== ''
+        && workspacePathKey(detachedRoot) === workspacePathKey(binding.cwd);
       const restore = h(
         'button',
         {
@@ -6303,13 +6816,18 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
           type: 'button',
           className: 'dsh-np-restore',
           'data-visible': ui.hidden ? 'true' : 'false',
+          'data-detached': detachedHere ? 'true' : 'false',
           'aria-hidden': ui.hidden ? undefined : 'true',
           tabIndex: ui.hidden ? undefined : -1,
-          title: t('show', { shortcut: settings.shortcuts.toggle }),
-          'aria-label': t('show', { shortcut: settings.shortcuts.toggle }),
+          title: detachedHere
+            ? t('reattachDetached')
+            : t('show', { shortcut: settings.shortcuts.toggle }),
+          'aria-label': detachedHere
+            ? t('reattachDetached')
+            : t('show', { shortcut: settings.shortcuts.toggle }),
           onClick: toggleHidden,
         },
-        h(NotepadIcon, { size: 16 }),
+        h(detachedHere ? DetachIcon : NotepadIcon, { size: 16 }),
         ui.hidden && unsentCount > 0
           ? h('span', {
               className: 'dsh-np-restore-badge',
@@ -6499,9 +7017,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
       });
     }
 
-    function NotepadSettings({ t }) {
+    function NotepadSettings({ ctx, t }) {
       const [settings, setSettings] = useState(readSettings);
       const [notice, setNotice] = useState('');
+      const [detached, setDetached] = useState({ active: false, seen: false, retired: false });
       const noticeTimerRef = useRef(0);
       useEffect(() => subscribeSettings((next) => setSettings(next)), []);
       useEffect(() => () => {
@@ -6516,6 +7035,71 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         setNotice(message);
         if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
         noticeTimerRef.current = setTimeout(() => setNotice(''), 2200);
+      };
+
+      const binding = currentSessionBinding(ctx);
+      const bindingRoot = binding?.root ?? '';
+      const bindingSession = binding?.sessionId ?? '';
+
+      // Warm the URL and poll the Host so the card can say whether a detached
+      // window is currently connected.
+      useEffect(() => {
+        if (bindingRoot === '') {
+          setDetached({ active: false, seen: false, retired: false });
+          return undefined;
+        }
+        prefetchDetachWindowUrl(bindingRoot, bindingSession, settings, true);
+        let disposed = false;
+        const check = async () => {
+          try {
+            const status = await fetchDetachWindowStatus(bindingRoot, bindingSession);
+            if (!disposed) setDetached(status);
+          } catch {
+            /* The card keeps its last state. */
+          }
+        };
+        void check();
+        const timer = setInterval(() => { void check(); }, 4000);
+        return () => {
+          disposed = true;
+          clearInterval(timer);
+        };
+      }, [bindingRoot, bindingSession, settings]);
+
+      const detachNow = async () => {
+        const target = currentSessionBinding(ctx);
+        if (target === null) {
+          announce(t('detachedNeedWorkspace'));
+          return;
+        }
+        const result = await openDetachedWindow(target.root, target.sessionId, settings);
+        if (result.error === true) {
+          announce(t('detachedUnavailable'));
+          return;
+        }
+        if (result.blocked === true) {
+          announce(t('detachedBlocked'));
+          return;
+        }
+        writeDetachRecord(target.root, target.sessionId);
+        setDetached({ active: true, seen: false, retired: false });
+        announceDetachedState(target.root, true);
+        announce(t('detachedOpened'));
+      };
+
+      const reattachNow = async () => {
+        const target = currentSessionBinding(ctx);
+        if (target !== null) {
+          try {
+            await retireDetachedWindow(target.root, target.sessionId);
+          } catch {
+            /* The panel still returns locally. */
+          }
+          clearDetachRecord(target.root);
+        }
+        setDetached({ active: false, seen: false, retired: true });
+        if (target !== null) announceDetachedState(target.root, false);
+        announce(t('detachedRetired'));
       };
 
       const themeOptions = [
@@ -6765,6 +7349,28 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
               }, t('applyResetGeometry')),
             ),
           ], t('geometryHint')),
+          card(t('detachedSection'), 'detached', [
+            field(t('detachedStatus'), '', h('span', {
+              className: 'dsh-np-set-status',
+              'data-active': detached.active === true ? 'true' : 'false',
+            }, detached.active === true ? t('detachedActive') : t('detachedInactive')), true),
+            h(
+              'div',
+              { className: 'dsh-np-set-actions', key: 'detached-actions', 'data-wide': 'true' },
+              h('button', {
+                type: 'button',
+                className: 'dsh-np-set-btn',
+                'data-primary': 'true',
+                onClick: () => { void detachNow(); },
+              }, t('openDetached')),
+              h('button', {
+                type: 'button',
+                className: 'dsh-np-set-btn',
+                disabled: detached.active !== true,
+                onClick: () => { void reattachNow(); },
+              }, t('reattachDetached')),
+            ),
+          ], t('detachedHint')),
         ),
         notice === ''
           ? null
@@ -7043,7 +7649,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         ctx.effect(
           () => slots.inject('settings.section', () => slots.register(
             { name: 'settings.section', id: 'notepad', order: 26, label: () => translate('settingsTab') },
-            () => h(NotepadSettings, { t: (key, params) => translate(key, params) }),
+            () => h(NotepadSettings, { ctx, t: (key, params) => translate(key, params) }),
           )),
           'dsh-notepad: settings tab',
         );
