@@ -39,12 +39,13 @@ import {
   retireDetachedRoot,
   shutdownDetachedServer,
 } from './lib/detached-server.js';
+import { openDetachedAppWindow } from './lib/app-window.js';
 
 /** Loopback route prefix. */
 const ROUTE = '/dsh-notepad/api';
 
 /** Plugin version mirrored in package.json. */
-const VERSION = '0.13.0';
+const VERSION = '0.14.0';
 
 /** Request body cap for note writes. */
 const BODY_LIMIT = 1024 * 1024;
@@ -492,6 +493,34 @@ async function dispatchRequest(ctx, req, res) {
       optimize: (text, title, instruction) => optimizeText(ctx, text, title, instruction),
     });
     sendJson(res, { ok: true, url: detached.url });
+    return;
+  }
+  if (action === 'detach-open') {
+    if (req.method !== 'POST') {
+      sendJson(res, { ok: false, code: 'method', error: 'Use POST.' }, 405);
+      return;
+    }
+    const body = await readJsonBody(req);
+    const root = await resolveRequestRoot(ctx, body);
+    const config = body.config !== null && typeof body.config === 'object' && !Array.isArray(body.config)
+      ? body.config
+      : undefined;
+    const windowSize = body.window !== null && typeof body.window === 'object' ? body.window : {};
+    const result = await openDetachedAppWindow(ctx, root, {
+      config,
+      width: windowSize.width,
+      height: windowSize.height,
+      optimize: (text, title, instruction) => optimizeText(ctx, text, title, instruction),
+    });
+    if (result.ok !== true) {
+      sendJson(res, 503, {
+        ok: false,
+        code: result.code ?? 'app-window-failed',
+        error: result.error ?? 'Could not open the app window.',
+      });
+      return;
+    }
+    sendJson(res, { ok: true, ...result });
     return;
   }
   if (action === 'detached') {

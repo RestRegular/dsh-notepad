@@ -74,7 +74,12 @@ test('serves a token-guarded detached page and note API', async (t) => {
   assert.ok(html.includes(`data-root="${root.replaceAll('\\', '/')}"`)
     || html.includes('data-root='), 'the page receives its workspace root');
   assert.ok(html.includes('detached.css'), 'the standalone stylesheet is linked');
+  assert.ok(html.includes('detached-icon.svg'), 'the app window favicon is linked');
   assert.match(page.headers.get('content-security-policy') ?? '', /script-src 'self'/u);
+
+  const icon = await fetch(`http://127.0.0.1:${currentDetachedPort()}/detached-icon.svg?token=${token}`);
+  assert.equal(icon.status, 200);
+  assert.match(icon.headers.get('content-type') ?? '', /image\/svg\+xml/u);
 
   const css = await fetch(`http://127.0.0.1:${currentDetachedPort()}/detached.css?token=${token}`);
   assert.equal(css.status, 200);

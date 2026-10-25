@@ -162,6 +162,7 @@ window.__ModuleLoader__.load({
       maxSegmentHeight: MAX_SEGMENT_HEIGHT,
       aiPreset: 'balanced',
       aiCustom: '',
+      windowMode: 'app',
       shortcuts: { ...SHORTCUT_DEFAULTS },
       defaultWidth: DEFAULT_W,
       defaultHeight: DEFAULT_H,
@@ -195,6 +196,7 @@ window.__ModuleLoader__.load({
         maxSegmentHeight: clampInt(value.maxSegmentHeight, 80, 800, base.maxSegmentHeight),
         aiPreset: AI_PRESET_IDS.includes(value.aiPreset) ? value.aiPreset : base.aiPreset,
         aiCustom: typeof value.aiCustom === 'string' ? value.aiCustom.slice(0, 4000) : '',
+        windowMode: value.windowMode === 'browser' ? 'browser' : 'app',
         shortcuts,
         defaultWidth: clampInt(value.defaultWidth, MIN_W, 1600, base.defaultWidth),
         defaultHeight: clampInt(value.defaultHeight, MIN_H, 1200, base.defaultHeight),
@@ -615,11 +617,17 @@ window.__ModuleLoader__.load({
         detachedSection: '独立窗口',
         detachedStatus: '状态',
         detachedHint: '把记事本移到独立窗口后，DSH 最小化或关闭界面时它仍可继续记录；独立窗口也有自己的最小化 / 还原，不受 DSH 影响。点「收回独立窗口」可回到浮窗。',
+        windowMode: '窗口形式',
+        windowModeApp: '独立应用窗口（无地址栏）',
+        windowModeBrowser: '系统浏览器窗口',
+        windowModeHint: '「独立应用窗口」由宿主调用本机 Edge / Chrome 的 app 模式打开，没有地址栏和标签页；找不到浏览器时自动回退到系统浏览器。',
         openDetached: '在独立窗口打开',
         reattachDetached: '收回独立窗口',
         detachedActive: '独立窗口已打开',
         detachedInactive: '当前没有独立窗口',
         detachedOpened: '已在独立窗口打开',
+        detachedAlreadyOpen: '独立窗口已经打开',
+        detachedFallback: '没有找到可用的应用窗口，已改用系统浏览器',
         detachedClosed: '独立窗口已关闭，已收回面板',
         detachedRetired: '已收回独立窗口',
         detachedBlocked: '浏览器阻止了新窗口，请允许弹窗后重试',
@@ -853,11 +861,17 @@ window.__ModuleLoader__.load({
         detachedSection: 'Detached window',
         detachedStatus: 'Status',
         detachedHint: 'Move the notepad into its own window so it keeps working when DSH is minimized or its interface is closed. The window minimizes and restores independently; use "Return detached window" to bring the panel back.',
+        windowMode: 'Window form',
+        windowModeApp: 'App window (no address bar)',
+        windowModeBrowser: 'System browser window',
+        windowModeHint: 'App mode launches the local Edge / Chrome with --app, without tabs or an address bar; if no browser is found it falls back to the system browser.',
         openDetached: 'Open in a detached window',
         reattachDetached: 'Return detached window',
         detachedActive: 'Detached window is open',
         detachedInactive: 'No detached window',
         detachedOpened: 'Opened in a detached window',
+        detachedAlreadyOpen: 'The detached window is already open',
+        detachedFallback: 'No app window was available; opened in the system browser',
         detachedClosed: 'The detached window closed; the panel is back',
         detachedRetired: 'Returned the detached window',
         detachedBlocked: 'The browser blocked the new window; allow pop-ups and try again',
@@ -2348,7 +2362,7 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
      * the main-process window-open handler forwards the http(s) URL to the
      * system browser, so a null return still means "opened externally".
      */
-    function openDetachedWindowNow(baseUrl, root, settings) {
+    function openDetachedBrowserWindowNow(baseUrl, root, settings) {
       let target;
       try {
         target = new URL(baseUrl);
@@ -2372,20 +2386,69 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
     }
 
     /**
-     * Open the detached window. With a warmed URL this calls `window.open`
-     * synchronously, preserving the click's user activation.
+     * Open the detached page in a normal browser window. With a warmed URL this
+     * calls `window.open` synchronously, preserving the click's user activation.
      */
-    async function openDetachedWindow(root, sessionId, settings) {
+    async function openDetachedBrowserWindow(root, sessionId, settings) {
       const key = workspacePathKey(root);
       const cached = detachWindowUrls.get(key);
       if (typeof cached === 'string' && cached !== '') {
-        return openDetachedWindowNow(cached, root, settings);
+        return openDetachedBrowserWindowNow(cached, root, settings);
       }
       try {
         const url = await getDetachWindowUrl(root, sessionId, settings);
-        return openDetachedWindowNow(url, root, settings);
+        return openDetachedBrowserWindowNow(url, root, settings);
       } catch {
         return { win: null, url: '', blocked: false, error: true };
+      }
+    }
+
+    /** Ask the Host to launch an Edge/Chrome app-mode window. */
+    async function requestDetachedAppWindow(root, sessionId, settings) {
+      const response = await fetch(`${API}/detach-open`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          root,
+          sessionId,
+          config: detachWindowConfig(settings),
+          window: {
+            width: Math.max(480, Number(settings.defaultWidth) || DEFAULT_W),
+            height: Math.max(560, Number(settings.defaultHeight) || DEFAULT_H),
+          },
+        }),
+      });
+      return readResponse(response);
+    }
+
+    /**
+     * Open the detached notepad. The default app mode runs Edge/Chrome with
+     * `--app=URL`, which produces a dedicated window without browser chrome.
+     * If no such browser exists (or the Host cannot spawn it), fall back to the
+     * normal browser window instead of leaving the user without a window.
+     */
+    async function openDetachedWindow(root, sessionId, settings) {
+      if (settings.windowMode === 'browser') {
+        return { ...(await openDetachedBrowserWindow(root, sessionId, settings)), mode: 'browser' };
+      }
+      try {
+        const data = await requestDetachedAppWindow(root, sessionId, settings);
+        return {
+          win: null,
+          url: typeof data.url === 'string' ? data.url : '',
+          blocked: false,
+          error: false,
+          mode: 'app',
+          existing: data.opened === 'existing',
+        };
+      } catch (error) {
+        const fallback = await openDetachedBrowserWindow(root, sessionId, settings);
+        return {
+          ...fallback,
+          mode: 'browser',
+          fallback: true,
+          fallbackReason: String(error?.message ?? error),
+        };
       }
     }
 
@@ -5311,7 +5374,9 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         setDetachedRoot(root);
         setUi((previous) => clampUi({ ...previous, hidden: true }));
         announceDetachedState(root, true);
-        showToast(t('detachedOpened'));
+        showToast(t(result.existing === true
+          ? 'detachedAlreadyOpen'
+          : result.fallback === true ? 'detachedFallback' : 'detachedOpened'));
       };
 
       /** Close/retire the detached window and show the floating panel again. */
@@ -7084,7 +7149,9 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         writeDetachRecord(target.root, target.sessionId);
         setDetached({ active: true, seen: false, retired: false });
         announceDetachedState(target.root, true);
-        announce(t('detachedOpened'));
+        announce(t(result.existing === true
+          ? 'detachedAlreadyOpen'
+          : result.fallback === true ? 'detachedFallback' : 'detachedOpened'));
       };
 
       const reattachNow = async () => {
@@ -7126,6 +7193,10 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
         { value: 'professional', label: t('aiPresetProfessional') },
         { value: 'outline', label: t('aiPresetOutline') },
         { value: 'custom', label: t('aiPresetCustom') },
+      ];
+      const windowModeOptions = [
+        { value: 'app', label: t('windowModeApp') },
+        { value: 'browser', label: t('windowModeBrowser') },
       ];
 
       const field = (label, hint, control, wide = false) => h(
@@ -7350,6 +7421,12 @@ body[data-ds-dark-theme] .dsh-np-seg[data-archived=true]{opacity:.7}
             ),
           ], t('geometryHint')),
           card(t('detachedSection'), 'detached', [
+            field(t('windowMode'), t('windowModeHint'), h(SettingsDropdown, {
+              value: settings.windowMode,
+              options: windowModeOptions,
+              ariaLabel: t('windowMode'),
+              onChange: (value) => commit({ windowMode: value }),
+            }), true),
             field(t('detachedStatus'), '', h('span', {
               className: 'dsh-np-set-status',
               'data-active': detached.active === true ? 'true' : 'false',

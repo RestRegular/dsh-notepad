@@ -340,6 +340,7 @@ let uploadedImages = 0;
 const deletedImages = [];
 const optimizeRequests = [];
 const unsentRequests = [];
+const appWindowRequests = [];
 
 function merge(segments) {
   return segments
@@ -384,6 +385,15 @@ globalThis.fetch = async (input, init = {}) => {
   if (url.pathname === '/dsh-notepad/api/detach-url') {
     return jsonResponse({
       ok: true,
+      url: 'http://127.0.0.1:45678/window?token=smoke-token',
+    });
+  }
+  if (url.pathname === '/dsh-notepad/api/detach-open') {
+    appWindowRequests.push(JSON.parse(init.body));
+    return jsonResponse({
+      ok: true,
+      opened: 'app',
+      mode: 'app',
       url: 'http://127.0.0.1:45678/window?token=smoke-token',
     });
   }
@@ -946,16 +956,15 @@ const detachButton = findAllByTitle(restored.seen, '在独立窗口打开')[0];
 assert.ok(detachButton, 'the header exposes the detached-window button');
 detachButton.element.props.onClick();
 const detached = await renderRounds(2, 60);
-assert.equal(openedWindows.length, 1, 'the detached window is opened once');
-const opened = new URL(openedWindows[0].url);
-assert.equal(opened.origin, 'http://127.0.0.1:45678');
-assert.equal(opened.pathname, '/window');
-assert.equal(opened.searchParams.get('token'), 'smoke-token');
-assert.equal(opened.searchParams.get('root'), ROOT, 'the detached URL carries the workspace root');
-assert.equal(openedWindows[0].name, 'dsh-notepad-detached');
-assert.ok(openedWindows[0].features.includes('popup=yes'), 'the browser opens a popup window');
+assert.equal(appWindowRequests.length, 1, 'the Host is asked to open one app window');
+assert.equal(openedWindows.length, 0, 'app mode does not use window.open');
+assert.equal(appWindowRequests[0].root, ROOT);
+assert.ok(appWindowRequests[0].window.width >= 480, 'the app window gets a usable width');
+assert.ok(appWindowRequests[0].window.height >= 560, 'the app window gets a usable height');
+assert.ok(requests.some((request) => request.method === 'POST' && request.url === '/dsh-notepad/api/detach-open'),
+  'the client asks the Host to launch the app window');
 assert.ok(requests.some((request) => request.method === 'POST' && request.url === '/dsh-notepad/api/detach-url'),
-  'the client asks the Host for the token-guarded URL');
+  'the client still warms the token-guarded URL');
 const detachedCard = detached.seen.find(({ element }) => element.type === 'section'
   && element.props['data-dsh-notepad'] === 'true');
 assert.equal(detachedCard.element.props['data-hidden'], 'true', 'the floating panel hides while detached');
@@ -1734,15 +1743,34 @@ function settingsSwitches(seen) {
 let settingsView = renderSettings();
 assert.ok(settingsView.text.includes('记事本设置'), 'the settings tab renders its title');
 assert.ok(settingsView.text.includes('独立窗口'), 'the settings tab exposes the detached-window card');
+const windowModeButton = settingsView.seen.find(({ element }) => element.type === 'button'
+  && element.props['aria-label'] === '窗口形式');
+assert.ok(windowModeButton, 'the settings card exposes the window form dropdown');
+windowModeButton.element.props.onClick();
+settingsView = renderSettings();
+assert.ok(settingsView.seen.some(({ element }) => element.type === 'button'
+  && element.props.role === 'option' && elementText(element).includes('独立应用窗口（无地址栏）')),
+'app mode is offered as the default window form');
+const browserModeOption = settingsView.seen.find(({ element }) => element.type === 'button'
+  && element.props.role === 'option' && elementText(element).includes('系统浏览器窗口'));
+assert.ok(browserModeOption, 'browser mode is offered as a fallback window form');
+browserModeOption.element.props.onClick();
+settingsView = renderSettings();
 const settingsDetachButton = settingsView.seen.find(({ element }) => element.type === 'button'
   && elementText(element) === '在独立窗口打开');
 assert.ok(settingsDetachButton, 'the settings card has an open-detached button');
 const opensBeforeSettingsDetach = openedWindows.length;
 settingsDetachButton.element.props.onClick();
 await new Promise((resolve) => setTimeout(resolve, 40));
-assert.equal(openedWindows.length, opensBeforeSettingsDetach + 1, 'the settings button opens the detached window');
+assert.equal(openedWindows.length, opensBeforeSettingsDetach + 1, 'the settings button opens the browser window in browser mode');
 assert.equal(new URL(openedWindows.at(-1).url).searchParams.get('root'), ROOT,
   'the settings button opens the last active workspace');
+const settingsReattach = renderSettings().seen.find(({ element }) => element.type === 'button'
+  && elementText(element) === '收回独立窗口');
+assert.ok(settingsReattach, 'the settings card can return the detached window');
+settingsReattach.element.props.onClick();
+await new Promise((resolve) => setTimeout(resolve, 40));
+assert.equal(detachedActive, false, 'the settings reattach retires the detached window');
 assert.equal(settingsSwitches(settingsView.seen).length, 2, 'auto-save and button groups use toggles');
 assert.equal(settingsView.seen.filter(({ element }) =>
   element.type === 'input' && element.props['aria-label'] === '显示 / 隐藏记事本').length, 1,
